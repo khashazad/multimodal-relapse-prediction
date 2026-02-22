@@ -158,3 +158,5 @@ data/**/*csv
 
 # Ignore vscode things
 **.DS_Store
+
+data/*

@@ -1,0 +1,41 @@
+{
+  "data_root": "data/original",
+  "track": 1,
+  "window_size": 7,
+  "stride": 1,
+  "output_dir": "data/processed",
+  "save_format": "pickle",
+  "sleep_files_dir": "data/original/track1/sleep_files",
+  "annotations_dir": "data/original/track1/track_1_annotations",
+  "feature_extraction": {
+    "window_size_minutes": 5,
+    "sample_rate_imu": 20,
+    "sample_rate_hr": 5,
+    "coverage_threshold": 0.25
+  },
+  "slurm": {
+    "_comments": {
+      "cores": "CPUs per task — preprocessing is mostly single-threaded, but extra cores help numpy/scipy",
+      "time": "Per-patient wall time limit (D-HH:MM). Largest patients take ~60 min; 4h is safe",
+      "memory": "RAM per task — largest sequences decompress to ~20 GB in pandas; 32G is safe",
+      "merge_time": "Wall time for the merge/fold-organisation job (fast, ~5 min)",
+      "merge_memory": "RAM for merge job — only loads small numpy windows, not raw parquets",
+      "partition": "SLURM partition name",
+      "account": "Billing account (leave empty if not required)",
+      "email": "Notification email (leave empty to disable)",
+      "email_type": "NONE | BEGIN | END | FAIL | ALL",
+      "log_dir": "Directory for SLURM stdout/stderr logs"
+    },
+    "cores": 4,
+    "time": "0-04:00",
+    "memory": "32G",
+    "merge_time": "0-00:30",
+    "merge_memory": "8G",
+    "partition": "cpu-batch",
+    "account": "",
+    "email": "",
+    "email_type": "FAIL",
+    "log_dir": "outputs/slurm_logs",
+    "job_name": "preprocess"
+  }
+}
