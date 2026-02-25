@@ -83,7 +83,7 @@ echo "Found ${N_PATIENTS} patients: ${PATIENTS[*]}"
 # ---------------------------------------------------------------------------
 
 mkdir -p "$SLURM_LOG_DIR"
-PATIENTS_FILE="${SLURM_LOG_DIR}/patients.txt"
+PATIENTS_FILE="$(cd "$(dirname "${SLURM_LOG_DIR}/patients.txt")" && pwd)/patients.txt"
 printf "%s\n" "${PATIENTS[@]}" > "$PATIENTS_FILE"
 echo "Patient list written to $PATIENTS_FILE"
 
@@ -110,10 +110,10 @@ ARRAY_CMD=(
     --job-name="${SLURM_JOB_NAME}_extract"
     --output="${SLURM_LOG_DIR}/%A_%a.out"
     --error="${SLURM_LOG_DIR}/%A_%a.err"
+    --chdir="$(pwd)"
     $COMMON_OPTS
-    --export="ALL,PREPROCESS_PATIENTS_FILE=${PATIENTS_FILE}"
-    --wrap="source env/bin/activate && \
-        PATIENT_ID=\$(sed -n \"\$((SLURM_ARRAY_TASK_ID + 1))p\" \"\$PREPROCESS_PATIENTS_FILE\") && \
+    --wrap=". /w/20252/khashazad/env/bin/activate && \
+        PATIENT_ID=\$(sed -n \"\$((SLURM_ARRAY_TASK_ID + 1))p\" \"${PATIENTS_FILE}\") && \
         echo \"Task \$SLURM_ARRAY_TASK_ID → patient \$PATIENT_ID\" && \
         python -u scripts/preprocess_data.py --patient \"\$PATIENT_ID\""
 )
@@ -145,7 +145,7 @@ MERGE_CMD=(
     --output="${SLURM_LOG_DIR}/%A_merge.out"
     --error="${SLURM_LOG_DIR}/%A_merge.err"
     $COMMON_OPTS
-    --wrap="source env/bin/activate && python -u scripts/preprocess_data.py --merge"
+    --wrap=". /w/20252/khashazad/env/bin/activate && python -u scripts/preprocess_data.py --merge"
 )
 
 MERGE_JOB_ID=$("${MERGE_CMD[@]}")

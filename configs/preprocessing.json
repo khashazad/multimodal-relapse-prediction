@@ -28,13 +28,13 @@
     },
     "cores": 4,
     "time": "0-04:00",
-    "memory": "32G",
+    "memory": "24G",
     "merge_time": "0-00:30",
     "merge_memory": "8G",
-    "partition": "cpu-batch",
+    "partition": "cpunodes",
     "account": "",
-    "email": "",
-    "email_type": "FAIL",
+    "email": "Khashayar1924@gmail.com",
+    "email_type": "FAIL,END",
     "log_dir": "outputs/slurm_logs",
     "job_name": "preprocess"
   }

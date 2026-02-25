@@ -174,7 +174,9 @@ class LOSOPreprocessor:
                 if len(row):
                     labels[i]     = int(row.iloc[0]["relapse"])
                     label_mask[i] = True
-            # test split: labels stay -1, mask stays False
+            # test_* with no relapse column: labels stay -1, mask stays False
+            # (after prepare_test_labels.py, test_* sequences have real labels
+            #  and are handled by the elif branch above)
 
         return day_list, labels, label_mask
 
