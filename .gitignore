@@ -139,8 +139,7 @@ cython_debug/
 
 # Ignore the outputs
 outputs/**/*json
-outputs/slurm_logs/*out
-outputs/slurm_logs/*err
+outputs/slurm_logs/
 outputs/logs/*out
 outputs/logs/*err
 

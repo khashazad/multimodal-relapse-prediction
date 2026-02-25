@@ -81,7 +81,7 @@ if [ -z "$NAME" ]; then
     exit 2
 fi
 
-source env/bin/activate
+source /w/20252/khashazad/env/bin/activate
 
 # Set configuration variables
 EXPERIMENT_LANG="${ARG_LANG:-${EXPERIMENT_LANG:-python}}"
@@ -155,4 +155,4 @@ else
     eval $SBATCH_CMD
 fi
 
-deactivate
+deactivate 2>/dev/null || true
