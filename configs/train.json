@@ -1,0 +1,53 @@
+{
+    "fold": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    "d_model": 64,
+    "nhead": 4,
+    "num_encoder_layers": 1,
+    "num_fusion_layers": 1,
+    "dropout": 0.1,
+    "lr": 1e-4,
+    "weight_decay": 0.01,
+    "batch_size": 32,
+    "epochs": 100,
+    "patience": 15,
+    "loss_fn": "weighted_bce",
+    "focal_alpha": 0.25,
+    "focal_gamma": 2.0,
+    "seed": 42,
+    "threshold": 0.5,
+    "data_dir": "data/processed/track1",
+    "executor": {
+        "_comments": {
+            "exec_name": "Name of the script to run (without extension). The script is expected in src/",
+            "output_dir": "Directory for experiment results (default: outputs/)",
+            "log_dir": "Directory for executor stdout/stderr logs (default: outputs/logs)"
+        },
+        "exec_name": "train",
+        "output_dir": "outputs",
+        "log_dir": "outputs/logs"
+    },
+    "slurm": {
+        "_comments": {
+            "cores": "CPUs per task",
+            "nodes": "Number of nodes",
+            "time": "Max runtime in D-HH:MM format",
+            "memory": "Memory per job",
+            "partition": "SLURM partition",
+            "gres": "GPU resources"
+        },
+        "cores": 4,
+        "nodes": 1,
+        "time": "0-02:00",
+        "memory": "16G",
+        "partition": "gpunodes",
+        "account": "",
+        "email": "Khashayar1924@gmail.com",
+        "email_type": "END,FAIL",
+        "log_dir": "outputs/slurm_logs",
+        "job_name": "train",
+        "exclude": "",
+        "constraint": "",
+        "gres": "gpu:rtx_4090:1",
+        "julia_path": ""
+    }
+}

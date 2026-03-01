@@ -7,6 +7,12 @@ from .feature_extractor import (
     FeatureExtractor,
 )
 from .preprocess_loso import LOSOPreprocessor
+from .dataset import MODALITY_ORDER, RelapseDataset, collate_fn
+from .model import (
+    FusionTransformer,
+    ModalityEncoder,
+    MultimodalRelapseTransformer,
+)
 
 __all__ = [
     "MultimodalDataLoader",
@@ -15,4 +21,10 @@ __all__ = [
     "MODALITY_DIMS",
     "MODALITY_FEATURE_NAMES",
     "LOSOPreprocessor",
+    "MODALITY_ORDER",
+    "RelapseDataset",
+    "collate_fn",
+    "ModalityEncoder",
+    "FusionTransformer",
+    "MultimodalRelapseTransformer",
 ]
