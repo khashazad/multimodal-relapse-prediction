@@ -8,8 +8,13 @@ Trains a per-fold model with early stopping on validation AUROC.
 from __future__ import annotations
 
 import json
+import os
+import sys
 import time
 from pathlib import Path
+
+# Ensure project root is on sys.path when invoked as `python src/train.py`
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import click
 import numpy as np
@@ -25,8 +30,8 @@ from sklearn.metrics import (
 )
 from torch.utils.data import DataLoader
 
-from .dataset import MODALITY_ORDER, RelapseDataset, collate_fn
-from .model import MultimodalRelapseTransformer
+from src.dataset import MODALITY_ORDER, RelapseDataset, collate_fn
+from src.model import MultimodalRelapseTransformer
 
 
 # ---------------------------------------------------------------------------
@@ -108,12 +113,18 @@ def evaluate(
 
     probs = np.concatenate(all_probs)
     labels = np.concatenate(all_labels).astype(int)
+
+    # Guard against NaN predictions (training diverged)
+    nan_mask = np.isnan(probs)
+    if nan_mask.any():
+        probs = np.where(nan_mask, 0.5, probs)
+
     preds = (probs >= threshold).astype(int)
 
     n_pos = int(labels.sum())
     n_neg = int(len(labels) - n_pos)
 
-    # AUROC/AUPRC require both classes present
+    # AUROC/AUPRC require both classes present and finite probabilities
     if n_pos == 0 or n_neg == 0:
         auroc = float("nan")
         auprc = float("nan")
@@ -293,6 +304,11 @@ def train(
 
         scheduler.step()
         avg_loss = epoch_loss / max(n_valid, 1)
+
+        # Detect training divergence
+        if np.isnan(avg_loss):
+            print(f"Training diverged at epoch {epoch} (NaN loss). Stopping.")
+            break
 
         # Validation
         val_metrics = evaluate(model, val_loader, device, threshold)
