@@ -255,7 +255,12 @@ class FeatureExtractor:
     def _extract_imu(
         self, df: pd.DataFrame, day_list: List[int]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Extract 38 features per day from an IMU parquet DataFrame."""
+        """Extract 38 features per day from an IMU parquet DataFrame.
+
+        Uses vectorised pandas groupby for the 28 statistical features and 4
+        activity features, falling back to per-window loops only for the 6
+        FFT features (which are already fast).
+        """
         n = len(day_list)
         features = np.full((n, MODALITY_DIMS["accel"]), np.nan, dtype=np.float32)
         mask = np.zeros(n, dtype=bool)
@@ -264,65 +269,104 @@ class FeatureExtractor:
         if not meas_cols:
             return features, mask
 
+        day_index_set = set(day_list)
+        day_pos = {d: i for i, d in enumerate(day_list)}
+
+        # Pre-filter to only relevant days before any heavy work
+        df = df[df["day_index"].isin(day_index_set)].copy()
+        if df.empty:
+            return features, mask
+
         # Compute magnitude and window bin in one pass
-        df = df.copy()
         df["_mag"] = np.sqrt((df[meas_cols] ** 2).sum(axis=1))
         df["_win"] = (
             _time_to_seconds(df["time"]) // self.win_secs
         ).astype(np.int32)
 
-        day_index_set = set(day_list)
-        day_pos = {d: i for i, d in enumerate(day_list)}
+        all_cols = meas_cols + ["_mag"]
+        grp_keys = ["day_index", "_win"]
 
-        for day_idx, day_df in df.groupby("day_index"):
-            if day_idx not in day_index_set:
+        # --- Statistical features (28): vectorised groupby agg ----------
+        grp = df.groupby(grp_keys)[all_cols]
+        stat_win = grp.agg(
+            ["mean", "std", "min", "max", "median", sp_skew, sp_kurtosis]
+        )
+        # Mask windows with fewer than 2 samples (matching _seven_stats guard)
+        counts = grp.size()  # Series indexed by (day_index, _win)
+        small_mask = counts < 2
+        if small_mask.any():
+            stat_win.loc[small_mask] = np.nan
+
+        # Reorder columns: for each signal col, the 7 stats in order
+        # stat_win columns are MultiIndex (col, agg_name)
+        ordered_stat_cols = []
+        for col in all_cols:
+            for agg in ["mean", "std", "min", "max", "median", "skew", "kurtosis"]:
+                ordered_stat_cols.append((col, agg))
+        stat_win = stat_win[ordered_stat_cols]
+
+        # Average stats across windows per day
+        stat_day = stat_win.groupby(level="day_index").mean()
+
+        # --- Activity features (4): vectorised --------------------------
+        df["_mag2"] = df["_mag"] ** 2
+        df["_active"] = (df["_mag"] > 1.5).astype(np.float32)
+        df["_sedentary"] = (df["_mag"] < 0.2).astype(np.float32)
+
+        act_grp = df.groupby(grp_keys)
+        energy_win = act_grp["_mag2"].sum()
+        pct_act_win = act_grp["_active"].mean()
+        pct_sed_win = act_grp["_sedentary"].mean()
+
+        # ZCR per window — needs apply (sign-change counting)
+        def _zcr(mag_series: pd.Series) -> float:
+            mag = mag_series.values
+            if len(mag) < 2:
+                return np.nan
+            return float(
+                np.sum(np.diff(np.sign(mag - mag.mean())) != 0)
+                / (len(mag) - 1)
+            )
+
+        zcr_win = act_grp["_mag"].apply(_zcr)
+
+        # Combine activity features and average per day
+        act_win = pd.DataFrame({
+            "energy": energy_win,
+            "zcr": zcr_win,
+            "pct_active": pct_act_win,
+            "pct_sedentary": pct_sed_win,
+        })
+        act_day = act_win.groupby(level="day_index").mean()
+
+        # --- FFT features (6): per-window loop (fast enough) ------------
+        fft_rows: Dict[Tuple, List[float]] = {}
+        for (day_idx, win_id), win_df in df.groupby(grp_keys):
+            fft_rows[(day_idx, win_id)] = self._fft_features(win_df["_mag"].values)
+
+        fft_df = pd.DataFrame.from_dict(fft_rows, orient="index",
+                                         columns=["dom_freq", "spec_entropy",
+                                                   "p01", "p13", "p38", "p8plus"])
+        fft_df.index = pd.MultiIndex.from_tuples(fft_df.index,
+                                                   names=["day_index", "_win"])
+        fft_day = fft_df.groupby(level="day_index").mean()
+
+        # --- Assemble per-day feature vectors ---------------------------
+        for day_idx in stat_day.index:
+            if day_idx not in day_pos:
                 continue
-
             pos = day_pos[day_idx]
-            win_groups = list(day_df.groupby("_win"))
-            n_windows = len(win_groups)
-
-            if n_windows == 0:
-                continue
-
             mask[pos] = True
 
-            # Collect per-window stats
-            stat_rows: List[List[float]] = []   # 28 features each
-            act_rows:  List[List[float]] = []   # 4 features each
-            fft_rows:  List[List[float]] = []   # 6 features each
+            stat_vals = stat_day.loc[day_idx].values.astype(np.float32)
+            act_vals = (act_day.loc[day_idx].values.astype(np.float32)
+                        if day_idx in act_day.index
+                        else np.full(4, np.nan, dtype=np.float32))
+            fft_vals = (fft_day.loc[day_idx].values.astype(np.float32)
+                        if day_idx in fft_day.index
+                        else np.full(6, np.nan, dtype=np.float32))
 
-            all_cols = meas_cols + ["_mag"]
-
-            for _, win_df in win_groups:
-                # Statistical features (28)
-                row_stats: List[float] = []
-                for col in all_cols:
-                    row_stats.extend(_seven_stats(win_df[col].values))
-                stat_rows.append(row_stats)
-
-                # Activity features (4)
-                mag = win_df["_mag"].values
-                energy  = float(np.sum(mag ** 2))
-                zcr     = float(
-                    np.sum(np.diff(np.sign(mag - mag.mean())) != 0)
-                    / max(len(mag) - 1, 1)
-                )
-                pct_act = float(np.mean(mag > 1.5))
-                pct_sed = float(np.mean(mag < 0.2))
-                act_rows.append([energy, zcr, pct_act, pct_sed])
-
-                # Frequency features (6)
-                fft_rows.append(self._fft_features(mag))
-
-            # Average across windows
-            day_feat = np.array(
-                np.nanmean(stat_rows, axis=0).tolist()
-                + np.nanmean(act_rows, axis=0).tolist()
-                + np.nanmean(fft_rows, axis=0).tolist(),
-                dtype=np.float32,
-            )
-            features[pos] = day_feat
+            features[pos] = np.concatenate([stat_vals, act_vals, fft_vals])
 
         return features, mask
 

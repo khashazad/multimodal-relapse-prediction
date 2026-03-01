@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import pickle
 import shutil
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -203,12 +204,15 @@ class LOSOPreprocessor:
         sequences = self.loader.get_sequences(patient_id)
         patient_raw: Dict[str, Dict] = {}
 
-        for seq_name in sequences:
+        for i, seq_name in enumerate(sequences, 1):
+            t0 = time.time()
+            print(f"  [{i}/{len(sequences)}] {seq_name}...", end=" ", flush=True)
+
             seq = self.loader.load_sequence(patient_id, seq_name)
             day_list, labels, label_mask = self._get_labels_and_days(seq)
 
             if not day_list:
-                print(f"  Warning: no days found for {patient_id}/{seq_name}, skipping.")
+                print(f"no days found, skipping.")
                 continue
 
             mod_results = self.feature_extractor.extract_all_modalities_for_sequence(
@@ -223,6 +227,7 @@ class LOSOPreprocessor:
                 "label_mask": label_mask,
                 "split":      seq.split,
             }
+            print(f"done ({time.time() - t0:.1f}s, {len(day_list)} days)")
 
         return patient_raw
 
@@ -364,15 +369,25 @@ class LOSOPreprocessor:
         print(f"\nStaging supplementary files for {patient_id}...")
         self._stage_supplementary_files(patient_id=patient_id)
 
+        t_patient = time.time()
         print(f"\nProcessing patient {patient_id}...")
+
+        t0 = time.time()
+        print(f"  Extracting features...")
         patient_raw = self._extract_patient_raw(patient_id)
         if not patient_raw:
             print(f"  Skipping {patient_id}: no sequences found.")
             return {}
+        print(f"  Feature extraction done ({time.time() - t0:.1f}s)")
 
+        t0 = time.time()
+        print(f"  Normalizing...")
         patient_norm, scalers = self._normalize_patient(patient_raw)
         self.patient_scalers[patient_id] = scalers
+        print(f"  Normalization done ({time.time() - t0:.1f}s)")
 
+        t0 = time.time()
+        print(f"  Creating windows...")
         patient_windows: Dict[str, List[Dict]] = {}
         for seq_name, seq_data in patient_norm.items():
             wins = self._create_windows(seq_data, patient_id, seq_name)
@@ -385,6 +400,8 @@ class LOSOPreprocessor:
                 f"{int((lbl[lmk] == 1).sum())} relapse) "
                 f"→ {len(wins)} windows"
             )
+        print(f"  Windowing done ({time.time() - t0:.1f}s)")
+        print(f"  Patient {patient_id} total: {time.time() - t_patient:.1f}s")
 
         return patient_windows
 
@@ -396,21 +413,31 @@ class LOSOPreprocessor:
         {patient_id: {sequence_name: [window_dicts]}}
         """
         all_data: Dict[str, Dict[str, List[Dict]]] = {}
+        patients = self.loader.get_patients()
 
-        for patient_id in self.loader.get_patients():
-            print(f"\nProcessing patient {patient_id}...")
+        for pi, patient_id in enumerate(patients, 1):
+            t_patient = time.time()
+            print(f"\n[{pi}/{len(patients)}] Processing patient {patient_id}...")
 
             # 1. Raw feature extraction
+            t0 = time.time()
+            print(f"  Extracting features...")
             patient_raw = self._extract_patient_raw(patient_id)
             if not patient_raw:
                 print(f"  Skipping {patient_id}: no sequences found.")
                 continue
+            print(f"  Feature extraction done ({time.time() - t0:.1f}s)")
 
             # 2. Per-patient normalisation
+            t0 = time.time()
+            print(f"  Normalizing...")
             patient_norm, scalers = self._normalize_patient(patient_raw)
             self.patient_scalers[patient_id] = scalers
+            print(f"  Normalization done ({time.time() - t0:.1f}s)")
 
             # 3. Create windows per sequence
+            t0 = time.time()
+            print(f"  Creating windows...")
             patient_windows: Dict[str, List[Dict]] = {}
             for seq_name, seq_data in patient_norm.items():
                 wins = self._create_windows(seq_data, patient_id, seq_name)
@@ -423,6 +450,8 @@ class LOSOPreprocessor:
                     f"{int((lbl[lmk] == 1).sum())} relapse) "
                     f"→ {len(wins)} windows"
                 )
+            print(f"  Windowing done ({time.time() - t0:.1f}s)")
+            print(f"  Patient {patient_id} total: {time.time() - t_patient:.1f}s")
 
             all_data[patient_id] = patient_windows
 

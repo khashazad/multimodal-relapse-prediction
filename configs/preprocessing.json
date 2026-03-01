@@ -17,7 +17,7 @@
     "_comments": {
       "cores": "CPUs per task — preprocessing is mostly single-threaded, but extra cores help numpy/scipy",
       "time": "Per-patient wall time limit (D-HH:MM). Largest patients take ~60 min; 4h is safe",
-      "memory": "RAM per task — largest sequences decompress to ~20 GB in pandas; 32G is safe",
+      "memory": "RAM per task — largest sequences decompress to ~20 GB in pandas; 48G is safe",
       "merge_time": "Wall time for the merge/fold-organisation job (fast, ~5 min)",
       "merge_memory": "RAM for merge job — only loads small numpy windows, not raw parquets",
       "partition": "SLURM partition name",
@@ -28,7 +28,7 @@
     },
     "cores": 4,
     "time": "0-04:00",
-    "memory": "24G",
+    "memory": "12G",
     "merge_time": "0-00:30",
     "merge_memory": "8G",
     "partition": "cpunodes",
