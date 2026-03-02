@@ -135,6 +135,25 @@
   - Regression diagnosis: HP trials used MSE loss (SoftDTW too slow: 152h vs ~4h) while final AE used SoftDTW — train/search objective mismatch caused HP search to prefer MSE-optimal small models. val_avg was very low for P4(0.277)/P7(0.320), meaning HP search found nothing useful for those patients.
   - Cache: cache/bumblebee_hp_trials_v6/ (trials per fold), cache/bumblebee_ae_models_v6/, cache/bumblebee_lopo_results_v6.pkl
 
+- [x] Added v7 Bumblebee AE + iNNE with Numba-JIT SoftDTW HP tuning (2026-03-02):
+  - Fix for v6 regression: HP trials now use Numba-JIT SoftDTW (same loss as final AE)
+  - v6 problem: MSE HP trials → SoftDTW final AE mismatch caused small model bias (d_model=16)
+  - Numba @njit forward DP + backward DP per sample; @njit(parallel=True) over batch dimension
+  - `_sdtw_fwd_core`: forward DP with Sakoe-Chiba band, log-sum-exp softmin
+  - `_sdtw_bwd_core`: backward DP propagating gradient via 3 successor contributions
+  - `_SoftDTWJITFn`: torch.autograd.Function wrapping JIT fwd/bwd; `soft_dtw_band_jit` top-level
+  - JIT warm-up call before LOPO loop triggers Numba compilation (~30s one-time)
+  - Single `_train_ae_v7` function for BOTH HP trials and final AE (no mismatch possible)
+  - `_BumbleBeeAE_v7` renamed to avoid shadowing v6 class; identical architecture
+  - Cache: cache/bumblebee_hp_trials_v7/, cache/bumblebee_ae_models_v7/, cache/bumblebee_lopo_results_v7.pkl
+  - Runtime estimate: ~4.5h total (~20 min/fold HP + ~10 min/fold final AE)
+
+- [x] Updated HRV cells 16 and 24 to derive from nighttime_seqs_v4.pkl (2026-03-02):
+  - Cell 16: Replaced raw-HRM processing (`calculate_hrv_metrics` + `process_patient_hrv`) with bin-averaging over `nighttime_seqs_v4.pkl` sequences (cols 0–3: rmssd, sdnn, mean_hr, mean_rr; nanmean over 55 bins). Cache bumped to `hrv_features_nighttime_v3.parquet` / `hrv_baselines_nighttime_v3.pkl`. `_seqs_v4` always loaded at top so downstream cells can reuse it.
+  - Cell 24: Replaced `process_patient_hrv_with_sleep_episodes` (sleep.parquet intersection logic) with same bin-averaging from `_seqs_v4` (acc filter already applied). Cache bumped to `hrv_sleep_verified_v2.parquet`.
+  - Cell 25: No changes needed — column names unchanged.
+  - CLAUDE.md updated with new cache paths.
+
 ## Pending Tasks
 - None
 

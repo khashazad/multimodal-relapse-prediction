@@ -38,8 +38,8 @@ The notebook follows a progressive feature engineering + modeling pipeline:
 2. **Feature engineering** (cells 7–21): Each modality builds patient-specific baselines from non-relapse days in train+val splits, then computes z-score deviation features for each day:
    - **Sleep features** (cell 7): Main sleep episode + nap metrics; deviation from personal baseline.
    - **Step count features** (cell 11): Daily total steps; `steps_zscore_inv` (inverted so fewer steps = higher risk signal).
-   - **Nighttime HRV** (cell 16): RMSSD and SDNN from HRM data during 00:00–08:00; cached to `cache/hrv_features_nighttime_v2.parquet` and `cache/hrv_baselines_nighttime_v2.pkl`.
-   - **Sleep-verified HRV** (cell 24–25): HRV computed only during verified sleep periods; cached to `cache/hrv_sleep_verified.parquet`.
+   - **Nighttime HRV** (cell 16): RMSSD and SDNN derived from `nighttime_seqs_v4.pkl` (bin-averaged, acc-based sleep filter); cached to `cache/hrv_features_nighttime_v3.parquet` and `cache/hrv_baselines_nighttime_v3.pkl`.
+   - **Sleep-verified HRV** (cell 24–25): HRV derived from same `nighttime_seqs_v4.pkl` source (acc filter already applied); cached to `cache/hrv_sleep_verified_v2.parquet`.
    - **Demographics** (cell 20–21): Age, sex, diagnosis loaded from `track1/demographics.csv`.
    - **Circadian activity** (cell 29): Hourly activity profiles fused from gyroscope + linear accelerometer (weighted sum, time-aligned to 1s); 15 features including clinically-validated actigraphy metrics (relative amplitude, intradaily variability, cosinor amplitude/acrophase, L5/M10 onset, evening activity); cached to `cache/circadian_features_fused_v3.parquet`.
 
@@ -53,8 +53,8 @@ The notebook follows a progressive feature engineering + modeling pipeline:
 Delete a cache file to force recomputation of that step. Cache filenames include version suffixes (e.g., `_v2`) which are bumped when the computation logic changes.
 
 All cached files:
-- `cache/hrv_features_nighttime_v2.parquet`, `cache/hrv_baselines_nighttime_v2.pkl`
-- `cache/hrv_sleep_verified.parquet`
+- `cache/hrv_features_nighttime_v3.parquet`, `cache/hrv_baselines_nighttime_v3.pkl`
+- `cache/hrv_sleep_verified_v2.parquet`
 - `cache/circadian_features_fused_v3.parquet`
 - `cache/transformer1_seq5.pth`, `cache/transformer2_seq5.pth`
 - `cache/lopo_cv_tuning.pkl`
