@@ -118,6 +118,23 @@
   - Cache files: cache/nighttime_seqs_v4.pkl (10MB), cache/bumblebee_ae_models_v4/ (9×281KB AE weights), cache/bumblebee_lopo_results_v4.pkl; checkpoint saves after each patient
   - CLAUDE.md should be updated to add v4 cache files
 
+- [x] Added v5 Bumblebee AE + iNNE with Soft DTW (Sakoe-Chiba band) loss (2026-03-02):
+  - Single change from v4: MSE loss → Soft DTW (γ=0.1, bandwidth=5, ±43 min tolerance)
+  - All other details identical to v4 (features, architecture d_model=32/d_lat=16/L=2, LOPO, Phase-2 fine-tune)
+  - Results: Mean AUROC=0.541±0.100, AUPRC=0.497±0.214, AVG=0.519±0.130
+  - Marginal improvement over v4 (0.541 vs 0.539); SoftDTW confirmed helpful
+  - Cache: cache/bumblebee_ae_models_v5/, cache/bumblebee_lopo_results_v5.pkl
+
+- [x] Added v6 Bumblebee AE + iNNE with Hyperopt HP tuning (2026-03-02):
+  - Hyperopt TPE, 20 trials/fold over d_model∈{16,32,64}, d_lat_frac∈{0.25,0.5}, n_layers∈{1,2,3}, n_epochs∈{50,100}, n_est∈{100,200,500}
+  - HP objective: AVG(AUROC, AUPRC) on test patient's val_* splits; iNNE fit on train_* non-relapse only (val_* strictly separate)
+  - Final AE retrained with SoftDTW using best HPs; final iNNE fit on train_*+val_* non-relapse; Phase 2 fine-tuning removed
+  - Results: Mean AUROC=0.510±0.114, AUPRC=0.476±0.234, AVG=0.493±0.158 — **slight regression vs v5**
+  - Per-patient best HPs varied (d_model=16 for P1/P5/P6/P7, d_model=64 for P2/P3/P4) confirming patient-specific capacity matters
+  - Highlights: P9=AUROC 0.671/AUPRC 0.796, P8=AUROC 0.543/AUPRC 0.862, P1=AUROC 0.648
+  - Regression diagnosis: HP trials used MSE loss (SoftDTW too slow: 152h vs ~4h) while final AE used SoftDTW — train/search objective mismatch caused HP search to prefer MSE-optimal small models. val_avg was very low for P4(0.277)/P7(0.320), meaning HP search found nothing useful for those patients.
+  - Cache: cache/bumblebee_hp_trials_v6/ (trials per fold), cache/bumblebee_ae_models_v6/, cache/bumblebee_lopo_results_v6.pkl
+
 ## Pending Tasks
 - None
 
