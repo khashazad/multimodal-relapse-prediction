@@ -102,6 +102,14 @@ class BottleneckFusion(nn.Module):
         # Cross-attention: latent (Q) <- modality_tokens (K, V)
         # key_padding_mask uses PyTorch convention: True = IGNORE
         key_padding_mask = ~modality_available  # (B, M)
+
+        # Guard: if ALL modalities are masked for a sample, cross-attention
+        # produces NaN (softmax over all -inf).  Force at least one key visible.
+        all_masked = key_padding_mask.all(dim=1)  # (B,)
+        if all_masked.any():
+            key_padding_mask = key_padding_mask.clone()
+            key_padding_mask[all_masked, 0] = False  # unmask first modality
+
         attn_out, _ = self.cross_attn(
             query=latent,
             key=modality_tokens,
