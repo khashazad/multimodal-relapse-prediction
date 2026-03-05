@@ -28,7 +28,7 @@
         "nodes": 1,
         "time": "0-02:00",
         "memory": "16G",
-        "partition": "gpunodes",
+        "partition": "cpunodes",
         "account": "",
         "email": "Khashayar1924@gmail.com",
         "email_type": "END,FAIL",
@@ -36,7 +36,7 @@
         "job_name": "exp_gated",
         "exclude": "",
         "constraint": "",
-        "gres": "gpu:rtx_4090:1",
+        "gres": "",
         "julia_path": ""
     }
 }
