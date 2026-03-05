@@ -31,32 +31,8 @@ from sklearn.metrics import (
 from torch.utils.data import DataLoader
 
 from src.dataset import MODALITY_ORDER, RelapseDataset, collate_fn
-from src.model import MultimodalRelapseTransformer
-
-
-# ---------------------------------------------------------------------------
-# Focal Loss
-# ---------------------------------------------------------------------------
-
-class FocalLoss(nn.Module):
-    """Binary focal loss for imbalanced classification."""
-
-    def __init__(self, alpha: float = 0.25, gamma: float = 2.0) -> None:
-        super().__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-
-    def forward(
-        self, logits: torch.Tensor, targets: torch.Tensor
-    ) -> torch.Tensor:
-        probs = torch.sigmoid(logits)
-        ce = nn.functional.binary_cross_entropy_with_logits(
-            logits, targets, reduction="none"
-        )
-        p_t = probs * targets + (1 - probs) * (1 - targets)
-        alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
-        loss = alpha_t * ((1 - p_t) ** self.gamma) * ce
-        return loss
+from src.losses import FocalLoss
+from src.models import get_model
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +121,73 @@ def evaluate(
     }
 
 
+def collect_probabilities(
+    model: nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+) -> tuple:
+    """Collect all (probs, labels) from a loader for threshold calibration."""
+    model.eval()
+    all_probs = []
+    all_labels = []
+
+    with torch.no_grad():
+        for batch in loader:
+            batch = {k: v.to(device) for k, v in batch.items()}
+            logits = model(batch)
+            probs = torch.sigmoid(logits)
+
+            valid = batch["label_valid"]
+            if valid.any():
+                all_probs.append(probs[valid].cpu().numpy())
+                all_labels.append(batch["label"][valid].cpu().numpy())
+
+    if not all_probs:
+        return np.array([]), np.array([])
+
+    return np.concatenate(all_probs), np.concatenate(all_labels).astype(int)
+
+
+def calibrate_threshold(
+    model: nn.Module,
+    val_loader: DataLoader,
+    test_loader: DataLoader,
+    device: torch.device,
+) -> dict:
+    """Find optimal threshold on val set and evaluate on test set.
+
+    Sweeps thresholds [0.05, 0.10, ..., 0.95], picks the one maximizing
+    val F1, then reports val and test metrics at both 0.5 and the calibrated
+    threshold.
+    """
+    val_probs, val_labels = collect_probabilities(model, val_loader, device)
+
+    if len(val_probs) == 0:
+        return {"calibrated_threshold": 0.5}
+
+    thresholds = np.arange(0.05, 1.0, 0.05)
+    best_f1 = -1.0
+    best_thresh = 0.5
+
+    for t in thresholds:
+        preds = (val_probs >= t).astype(int)
+        f1 = float(f1_score(val_labels, preds, zero_division=0))
+        if f1 > best_f1:
+            best_f1 = f1
+            best_thresh = float(round(t, 2))
+
+    # Evaluate val & test at calibrated threshold
+    cal_val = evaluate(model, val_loader, device, threshold=best_thresh)
+    cal_test = evaluate(model, test_loader, device, threshold=best_thresh)
+
+    return {
+        "calibrated_threshold": best_thresh,
+        "calibrated_val_f1": best_f1,
+        "calibrated_val_metrics": cal_val,
+        "calibrated_test_metrics": cal_test,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main training loop
 # ---------------------------------------------------------------------------
@@ -172,6 +215,15 @@ def evaluate(
 @click.option("--seed", type=int, default=42)
 @click.option("--threshold", type=float, default=0.5)
 @click.option("--data_dir", type=str, default="data/processed/track1")
+# New experiment options
+@click.option("--model_name", type=str, default="transformer_v1")
+@click.option("--num_bottleneck_tokens", type=int, default=4)
+@click.option("--dann_lambda", type=float, default=0.0)
+@click.option("--dann_warmup_epochs", type=int, default=20)
+@click.option("--calibrate_threshold", type=bool, default=False)
+@click.option("--augmentation", type=str, default="none")
+@click.option("--mixup", type=bool, default=False)
+@click.option("--mixup_alpha", type=float, default=0.2)
 def train(
     exp_name: str,
     output_dir: str,
@@ -193,6 +245,14 @@ def train(
     seed: int,
     threshold: float,
     data_dir: str,
+    model_name: str,
+    num_bottleneck_tokens: int,
+    dann_lambda: float,
+    dann_warmup_epochs: int,
+    calibrate_threshold: bool,
+    augmentation: str,
+    mixup: bool,
+    mixup_alpha: float,
 ) -> None:
     t_start = time.time()
 
@@ -209,7 +269,7 @@ def train(
     data_path = Path(data_dir) / f"fold_{fold}"
     print(f"Loading fold {fold} from {data_path}...")
 
-    train_ds = RelapseDataset(data_path / "train.pkl")
+    train_ds = RelapseDataset(data_path / "train.pkl", augmentation=augmentation)
     val_ds = RelapseDataset(data_path / "val.pkl")
     test_ds = RelapseDataset(data_path / "test.pkl")
 
@@ -235,17 +295,20 @@ def train(
         metadata = json.load(f)
     window_size = metadata["window_size"]
 
-    model = MultimodalRelapseTransformer(
+    model = get_model(
+        model_name,
         d_model=d_model,
         nhead=nhead,
         num_encoder_layers=num_encoder_layers,
         num_fusion_layers=num_fusion_layers,
         dropout=dropout,
         window_size=window_size,
+        num_bottleneck_tokens=num_bottleneck_tokens,
+        dann_lambda=dann_lambda,
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Model parameters: {n_params:,}")
+    print(f"Model: {model_name} | Parameters: {n_params:,}")
 
     # ---- Loss ----
     if loss_fn == "weighted_bce":
@@ -266,6 +329,11 @@ def train(
         optimizer, T_max=epochs
     )
 
+    # ---- DANN setup ----
+    has_dann = dann_lambda > 0 and hasattr(model, "discriminator")
+    if has_dann:
+        print(f"DANN enabled — lambda: {dann_lambda}, warmup: {dann_warmup_epochs} epochs")
+
     # ---- Training ----
     best_val_auroc = -1.0
     best_epoch = 0
@@ -276,9 +344,16 @@ def train(
         model.train()
         epoch_loss = 0.0
         n_valid = 0
+        epoch_dann_loss = 0.0
 
         for batch in train_loader:
             batch = {k: v.to(device) for k, v in batch.items()}
+
+            # Mixup augmentation
+            if mixup and np.random.random() > 0.5:
+                batch, lam = _apply_mixup(batch, mixup_alpha)
+            else:
+                lam = None
 
             logits = model(batch)  # (B,)
             labels = batch["label"]  # (B,)
@@ -293,6 +368,14 @@ def train(
             else:
                 per_sample = criterion(logits[valid], labels[valid])
                 loss = per_sample.mean()
+
+            # DANN adversarial loss
+            if has_dann:
+                dann_progress = min(1.0, epoch / max(dann_warmup_epochs, 1))
+                current_lambda = dann_lambda * dann_progress
+                aux_loss = model.get_auxiliary_loss()
+                loss = loss + current_lambda * aux_loss
+                epoch_dann_loss += aux_loss.item() * valid.sum().item()
 
             optimizer.zero_grad()
             loss.backward()
@@ -314,14 +397,17 @@ def train(
         val_metrics = evaluate(model, val_loader, device, threshold)
         val_auroc = val_metrics["auroc"]
 
-        history.append({
+        epoch_record = {
             "epoch": epoch,
             "train_loss": avg_loss,
             "val_auroc": val_auroc,
             "val_auprc": val_metrics["auprc"],
             "val_f1": val_metrics["f1"],
             "lr": optimizer.param_groups[0]["lr"],
-        })
+        }
+        if has_dann:
+            epoch_record["dann_loss"] = epoch_dann_loss / max(n_valid, 1)
+        history.append(epoch_record)
 
         # Early stopping check
         if not np.isnan(val_auroc) and val_auroc > best_val_auroc:
@@ -351,10 +437,23 @@ def train(
     print(f"Val  — AUROC: {val_final['auroc']:.4f} | AUPRC: {val_final['auprc']:.4f} | F1: {val_final['f1']:.4f}")
     print(f"Test — AUROC: {test_final['auroc']:.4f} | AUPRC: {test_final['auprc']:.4f} | F1: {test_final['f1']:.4f}")
 
+    # ---- Threshold calibration (optional) ----
+    calibration_results = {}
+    if calibrate_threshold:
+        calibration_results = calibrate_threshold_fn(
+            model, val_loader, test_loader, device
+        )
+        ct = calibration_results["calibrated_threshold"]
+        cf1 = calibration_results.get("calibrated_val_f1", float("nan"))
+        print(f"\nCalibrated threshold: {ct:.2f} (val F1: {cf1:.4f})")
+        cal_test = calibration_results.get("calibrated_test_metrics", {})
+        print(f"Calibrated test — F1: {cal_test.get('f1', float('nan')):.4f}")
+
     # ---- Save output ----
     output = {
         "exp_name": exp_name,
         "fold": fold,
+        "model_name": model_name,
         "hyperparameters": {
             "d_model": d_model,
             "nhead": nhead,
@@ -372,6 +471,9 @@ def train(
             "seed": seed,
             "threshold": threshold,
             "window_size": window_size,
+            "augmentation": augmentation,
+            "mixup": mixup,
+            "mixup_alpha": mixup_alpha,
         },
         "model_params": n_params,
         "device": str(device),
@@ -385,6 +487,16 @@ def train(
         "elapsed_seconds": time.time() - t_start,
     }
 
+    if dann_lambda > 0:
+        output["hyperparameters"]["dann_lambda"] = dann_lambda
+        output["hyperparameters"]["dann_warmup_epochs"] = dann_warmup_epochs
+
+    if num_bottleneck_tokens != 4:
+        output["hyperparameters"]["num_bottleneck_tokens"] = num_bottleneck_tokens
+
+    if calibration_results:
+        output.update(calibration_results)
+
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
     with open(out_path / output_filename, "w") as f:
@@ -392,6 +504,58 @@ def train(
 
     print(f"\nResults saved to {out_path / output_filename}")
     print(f"Total time: {time.time() - t_start:.1f}s")
+
+
+# Rename to avoid Click option name collision
+calibrate_threshold_fn = calibrate_threshold
+
+
+def _apply_mixup(
+    batch: dict[str, torch.Tensor],
+    alpha: float,
+) -> tuple[dict[str, torch.Tensor], float]:
+    """Apply mixup augmentation to a batch.
+
+    Shuffles samples within the batch and interpolates features/labels.
+    Uses class-balanced partner selection: relapse samples are paired with
+    other relapse samples 50% of the time.
+    """
+    B = batch["label"].size(0)
+    device = batch["label"].device
+
+    lam = float(np.random.beta(alpha, alpha))
+
+    # Class-balanced partner selection
+    labels = batch["label"]
+    pos_mask = labels == 1
+    neg_mask = ~pos_mask
+
+    perm = torch.randperm(B, device=device)
+    if pos_mask.sum() > 1 and neg_mask.sum() > 0:
+        # For positive samples, 50% chance to pair with another positive
+        pos_indices = torch.where(pos_mask)[0]
+        for idx in pos_indices:
+            if np.random.random() < 0.5 and len(pos_indices) > 1:
+                candidates = pos_indices[pos_indices != idx]
+                perm[idx] = candidates[torch.randint(len(candidates), (1,))]
+
+    mixed_batch = {}
+    for k, v in batch.items():
+        if k in ("label", "label_valid"):
+            continue
+        if v.is_floating_point():
+            mixed_batch[k] = lam * v + (1 - lam) * v[perm]
+        else:
+            mixed_batch[k] = v  # keep masks unchanged
+    mixed_batch["label"] = lam * batch["label"] + (1 - lam) * batch["label"][perm]
+    mixed_batch["label_valid"] = batch["label_valid"] & batch["label_valid"][perm]
+
+    # Preserve non-mixed keys
+    for k in batch:
+        if k not in mixed_batch:
+            mixed_batch[k] = batch[k]
+
+    return mixed_batch, lam
 
 
 if __name__ == "__main__":
