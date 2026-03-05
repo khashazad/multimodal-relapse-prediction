@@ -159,3 +159,4 @@ data/**/*csv
 **.DS_Store
 
 data/*
+env
