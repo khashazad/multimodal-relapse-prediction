@@ -196,8 +196,102 @@
   - Output: `cache/per_patient_window_results.pkl` (written after each fold, crash-safe)
   - Summary table: per-patient selected window + val AUROC + test AUROC/AUPRC/AVG + delta vs W14-HP and W14-sweep
 
+### 2026-03-04 (continued)
+- [x] Added cell 59: Bipolar-Only Sensitivity Analysis (W14 HRV):
+  - Filters `combined_w14` to BIPOLAR_PATIENTS = ['P3','P4','P5','P6','P8','P9']; excludes P1 (Brief Psychotic), P2 (Schizophreniform), P7 (Schizophrenia)
+  - Part 0: Validates `combined_w14` and `feature_cols_w14` are in scope; creates `combined_bp` with assertion guards
+  - Part 1: Per-fold XGBoost feature importances on bipolar-only LOPO (6 folds); re-ranks features for this sub-cohort
+  - Part 2: Top-K sweep (K∈{3,5,8,10,15,20,25,30,all}); per-fold results at best K; crash-safe cache at `cache/lopo_results_w14_bipolar_v1.pkl`
+  - Part 3: LR L2 (C=0.1) and LR L1 (C=0.05 liblinear) at best K
+  - Part 4: Comparison table (full n=9 vs bipolar n=6) with delta markers; per-patient AUROC for bipolar folds
+  - Pulls live cell 58 reference numbers if in scope, else falls back to hardcoded values
+
+- [x] Added cell 63: Bipolar Transformer + SMOTE + Hyperopt HP Tuning (2026-03-04):
+  - Hyperopt TPE, 20 trials/fold × 6 folds (120 total). HP search space: 6 joint model_config choices (d_model∈{16,32,64} × nhead∈{2,4}, valid pairs only), n_layers∈{1,2,3}, dropout∈{0.1,0.2,0.3,0.4}, lr log-uniform [1e-4,5e-3], seq_len∈{5,7,14}, batch∈{16,32,64}, n_epochs∈{60,80,100}.
+  - Data splits: HP train = split_type=='train' (other 5 patients), HP val = split_type=='val' (other 5), final train = train+val (other 5), eval = test (test patient). No test-set leakage during HP search.
+  - SMOTE on flattened windows each trial (seq_len varies); val sequences cached by seq_len per fold (built once, reused).
+  - Early stopping (patience=15, monitor val AUROC); best-checkpoint tracking in objective returns best-epoch probabilities.
+  - Final model: best HPs from trials, trains on train+val data with SMOTE, best-epoch checkpoint by test AUROC.
+  - Crash-safe: per-fold trials pkl written after each fold; results pkl written after all 6 folds.
+  - Cache: cache/transformer_bp_hp_trials/trials_{P}.pkl, cache/transformer_bp_hp_models/model_fold_{P}.pth, cache/transformer_bp_hp_lopo_v1.pkl.
+  - Comparison table: cells 60/62/63 side-by-side with Δ(63-62); per-patient AUROC+AUPRC for all 3; best HPs per fold printed.
+
+- [x] Added cell 64: Bipolar Transformer + SMOTE + Hyperopt HP Tuning v2 (2026-03-04):
+  - Fix for cell 63 regression (AUROC 0.774→0.726): HP-train mismatch (train-only vs train+val) caused bad HPs.
+  - HP split: per-patient temporal 80/20 split of combined train+val. First 80% = HP train, last 20% = HP val. All 5 training patients represented in both partitions. Preserves temporal order.
+  - Final model training unchanged (train+val from 5 non-test patients).
+  - HP space and all other implementation identical to cell 63 (but _v2 suffix on all hyperopt keys).
+  - Cache: cache/transformer_bp_hp_trials_v2/, cache/transformer_bp_hp_models_v2/, cache/transformer_bp_hp_lopo_v2.pkl
+
+### 2026-03-05
+- [x] Added cell 65: Bipolar Transformer + SMOTE, seq_len=5 (2026-03-05):
+  - Identical to cell 62 (SMOTE, fixed HPs) except SEQ_LEN=5 instead of 7.
+  - Motivation: c63 (6/6 folds) and c64 (4/6 folds) both preferred seq_len=5 in HP tuning.
+  - Tests whether seq_len=5 is a useful signal or tuning noise.
+  - All HPs unchanged: D_MODEL=32, NHEAD=4, N_LAYERS=2, DROPOUT=0.3, LR=1e-3, BATCH=32, N_EPOCHS=80.
+  - Cache: cache/transformer_bp_seq5_lopo_v1.pkl, cache/transformer_bp_seq5_models/model_fold_{P}.pth
+  - Comparison table: c60 / c62 / c63 / c64 / c65 (with live globals + hardcoded fallbacks)
+  - Results: TBD (not yet run)
+
+### 2026-03-06
+- [x] Added cell 66: Bipolar Transformer + SMOTE — seq_len sweep [7, 10, 12, 14]:
+  - Tests seq_len values not covered by HP space ({5,7,14}): adds 10 and 12.
+  - seq_len=7 loaded from c62 cache (no retraining); 10/12/14 trained fresh.
+  - All HPs fixed: D_MODEL=32, NHEAD=4, N_LAYERS=2, DROPOUT=0.3, LR=1e-3, BATCH=32, N_EPOCHS=80.
+  - Cache per seq_len: cache/transformer_bp_seqsweep_sl{N}_v1.pkl, cache/transformer_bp_seqsweep_sl{N}_models/
+  - Comparison table: summary row per seq_len (AUROC±std, AUPRC, delta vs sl=7) + per-patient AUROC grid with best marked.
+  - Results: TBD (not yet run)
+
+### 2026-03-06 (continued)
+- [x] Added cell 67: Bipolar Transformer + SMOTE, val-context fix — seq_len sweep [5,7,10,12,14]:
+  - Fixes warm-up evaluation gap: `_create_seqs_bp` groups by (patient_id, split), losing seq_len-1 days from each test split start. Relapses at day 0 of test splits (P4/P5/P6/P8/P9) were silently dropped; P4 was N/A for sl>=12.
+  - Fix: prepend test patient's own val data as context; slide windows over sorted val+test, keep only test-labeled windows. New function `_create_test_seqs_with_ctx_bp`.
+  - Training data unchanged (other patients' val splits).
+  - Sweep: seq_len ∈ [5, 7, 10, 12, 14]. All HPs fixed: D_MODEL=32, NHEAD=4, N_LAYERS=2, DROPOUT=0.3, LR=1e-3, BATCH=32, N_EPOCHS=80.
+  - Cache: cache/transformer_bp_ctx_sl{N}_v1.pkl, cache/transformer_bp_ctx_sl{N}_models/
+  - Comparison table: summary row per seq_len (AUROC, AUPRC, n valid folds, Δ vs sl7-fix, Δ vs c62); per-patient AUROC grid; test window counts showing coverage gain.
+  - Results: TBD (not yet run)
+
+### 2026-03-06 (continued)
+- [x] Added cell 68: Bipolar Transformer + SMOTE + Padding, seq_len sweep [5,7,10,12,14]:
+  - Left-pad + attention mask (progressive expanding window), applied symmetrically to both training and test.
+  - `_create_seqs_padded_bp`: one window per day, left-padded to seq_len; returns (seqs, labels, masks).
+  - `_SeqTransformerBP_P68`: adds `src_key_padding_mask` to `forward()` so transformer ignores padded positions.
+  - SMOTE on fully non-padded training windows only; padded-start windows appended without augmentation.
+  - DataLoader: (X, y, mask) triples; mask passed to model during training and evaluation.
+  - Test uses same padded builder (no val-context); every test day gets a prediction window.
+  - Cache: cache/transformer_bp_pad_sl{N}_v1.pkl, cache/transformer_bp_pad_sl{N}_models/
+  - Results: TBD (not yet run)
+
 ## Pending Tasks
 - None
+
+### 2026-03-04 (continued)
+- [x] Added cell 62: Bipolar Transformer + SMOTE Oversampling:
+  - Same architecture as cell 60 (_SeqTransformerBP, 24 union features, SEQ_LEN=7, D_MODEL=32)
+  - SMOTE applied to flattened training windows: (N, 7, 24) -> (N, 168) -> SMOTE -> reshape back; removes pos_weight entirely
+  - k_neighbors=min(5, n_minority-1); RandomOverSampler fallback for n_minority==1
+  - Cache: cache/transformer_bp_smote_lopo_v1.pkl, cache/transformer_bp_smote_models/
+  - Results: AUROC=0.774±0.154 (+0.033), AUPRC=0.705 (+0.044) vs cell 60 pos_weight
+  - Per-patient: P3 +0.040/+0.140, P5 +0.165/+0.155, P6 +0.016/+0.019 (gains); P4 -0.023/-0.052 (hard fold); P8/P9 neutral (already near-perfect)
+  - Best result across all models to date
+
+- [x] Added cell 61: Bipolar LOPO with SMOTE Oversampling:
+  - Part 0: Verifies `combined_bp` and `feature_cols_w14` in scope; auto-installs `imbalanced-learn` if missing; re-uses `best_K_bp` / `best_K_feats_bp` from cell 59 scope (fallback: recomputes K=5 features).
+  - Part 1: LOPO XGBoost with SMOTE — StandardScaler on imbalanced train → SMOTE (k=min(5, n_minority-1)) or RandomOverSampler fallback if n_minority==1 → XGBoost without `scale_pos_weight`; test set never oversampled.
+  - Part 2: Same SMOTE pipeline for LR L2 (C=0.1) and LR L1 (C=0.05, liblinear).
+  - Part 3: Comparison table (SMOTE vs pos_weight from cell 59) for XGBoost + LR L2 + LR L1; per-patient AUROC + AUPRC side-by-side with deltas.
+  - Cache: `cache/lopo_results_w14_bipolar_smote_v1.pkl`
+  - Prints per-fold minority count before/after SMOTE and sampler type used.
+
+### 2026-03-04 (continued)
+- [x] Added cell 60: Bipolar-Only Supervised Transformer (Boruta+mRMR Union Features):
+  - Part 0: Builds `union_feats` = sorted(set(boruta_feats) | set(selected_mrmr)), filtered to columns present in `combined_bp`. Falls back to hardcoded lists if variables not in scope. Prints final count.
+  - Defines `_SeqTransformerBP` (d_model=32, nhead=4, n_layers=2, dropout=0.3) with `_BP` suffix to avoid namespace collisions with cells 38/49.
+  - Defines `_create_seqs_bp`: sliding windows (seq_len=7, stride=1) per (patient_id, split); label = relapse of last day.
+  - Part 1: LOPO over 6 bipolar patients. Scaler fit on training days (not windows). BCEWithLogitsLoss(pos_weight=n_neg/n_pos). Adam lr=1e-3, batch=32, 80 epochs. Best checkpoint saved by AUROC each epoch. Model saved to `cache/transformer_bp_models/model_fold_{P}.pth`.
+  - Part 2: Summary table comparing XGBoost/LR from cell 59 vs Transformer cell 60; per-patient AUROC/AUPRC.
+  - Cache: `cache/transformer_bp_lopo_v1.pkl`, `cache/transformer_bp_models/`
 
 - [x] Added Bumblebee-faithful AE + iNNE cell with raw nighttime sequences (2026-03-01):
   - New cell 51 appended after cell 50 (MLP AE + iNNE)
@@ -218,3 +312,11 @@
   - **v3 (current)**: Added personalized adaptation: (1) pretrain AE on 1200+ non-relapse nights from other 8 patients, (2) fine-tune 30 epochs on test patient's own train+val non-relapse nights, (3) iNNE fit on test patient's encoded baseline, (4) score ONLY test splits (not val/train). Final results: Mean AUROC=0.508±0.120 (AUPRC=0.464±0.216). Best folds: P9=0.733, P1=0.625, P5=0.581. Worst: P8=0.349, P7=0.375.
   - **Gap from paper**: Paper reports AUROC~0.784, AVG~0.742. Gap likely due to: (a) paper may use within-patient evaluation not true LOPO, (b) small n=9 patients creates high fold variance, (c) paper may use different preprocessing or architecture details.
   - Final cache files: cache/nighttime_seqs_v2.pkl, cache/bumblebee_ae_models_v3/, cache/bumblebee_lopo_results_v3.pkl
+
+### 2026-03-04
+- [x] Added cell 58: W14 HRV Feature Engineering + LOPO Comparison (traditional ML):
+  - Part 1: Loads `cache/window_sweep/seqs_w14.pkl`, extracts RMSSD/SDNN/MeanHR scalars (nanmean over 55 bins), computes patient-specific baselines from train+val non-relapse days, computes z-scores. Caches to `cache/hrv_features_w14_v1.parquet` and `cache/hrv_baselines_w14_v1.pkl`.
+  - Part 2: Builds `combined_w14` by merging sleep_features_df + step_features_df + W14 HRV z-scores + circadian_features_df + demographics. Uses same feature filter as cell 33 (>50% non-null, numeric, not id/label cols).
+  - Part 3: LOPO XGBoost + LR (same protocol as cell 35): per-fold feature importance ranking, top-K sweep (K∈{3,5,8,10,15,20,25,30,all}), LR L2/L1 at best K. Crash-safe cache at `cache/lopo_results_w14_hrv_v1.pkl`.
+  - Part 4: Comparison table W14 vs W00 (pulls live from sweep_df if cell 35 ran, else hardcodes 0.530).
+  - Standalone: all imports at top, dependency checks with graceful errors, no namespace conflicts with other cells.
