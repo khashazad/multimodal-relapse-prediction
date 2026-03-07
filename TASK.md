@@ -284,6 +284,14 @@
   - Cache: same dir as c69 — cache/transformer_bp_pad_hpgrid/combo_d128_l3_dr0{2,3,4}.pkl
   - Part 2: summary table (Δ vs c68-sl7 and c69-best) + per-patient breakdown for best d=128 combo.
 
+### 2026-03-07 (continued)
+- [x] Added cell 71: d_model=256 extension + unified HP grid results:
+  - Part 1: d_model=256, n_layers=3, dropout∈{0.2,0.3,0.4} — 3 combos × 6 folds = 18 runs.
+  - Part 2: Loads ALL cached combos from cache/transformer_bp_pad_hpgrid/ (c69+c70+c71 = 33 total).
+    Unified table sorted by mean AUROC showing d_model, n_layers, dropout, mean_AUROC, mean_AUPRC, Δ vs c68-sl7.
+    Summary: best result per d_model to show scaling trend. Overall best combo printed explicitly.
+  - Cache: combo_d256_l3_dr0{2,3,4}.pkl in same dir as c69/c70.
+
 ## Pending Tasks
 - None
 
