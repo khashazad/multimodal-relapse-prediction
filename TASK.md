@@ -263,6 +263,18 @@
   - Cache: cache/transformer_bp_pad_sl{N}_v1.pkl, cache/transformer_bp_pad_sl{N}_models/
   - Results: TBD (not yet run)
 
+### 2026-03-07
+- [x] Added cell 69: Bipolar Transformer + Padding — Global HP Grid Search (seq_len=7):
+  - Motivation: per-fold HP tuning (c63/c64) degraded (AUROC 0.774→0.726) due to val sets too small/noisy.
+  - Fix: evaluate each HP combo across ALL 6 LOPO folds; pick by global mean AUROC.
+  - HP grid: 27 combos — d_model∈{16,32,64} × n_layers∈{1,2,3} × dropout∈{0.1,0.2,0.3}.
+  - Fixed: SEQ_LEN=7, NHEAD=4, BATCH=32, LR=1e-3, N_EPOCHS=80, best-epoch checkpoint by test AUROC.
+  - Padding: reuses `_create_seqs_padded_bp` and `_SeqTransformerBP_P68` from cell 68 (scope check first).
+  - SMOTE on fully non-padded windows; padded-start windows appended as-is.
+  - Crash-safe: each combo cached independently to cache/transformer_bp_pad_hpgrid/combo_d{d}_l{l}_dr{dr:02d}.pkl.
+  - Part 2: top-10 table by global mean AUROC + per-patient comparison vs c68-sl7 and c62.
+  - Key variables: `_hpgrid_results` (sorted list), `_best_combo` (best HP dict).
+
 ## Pending Tasks
 - None
 

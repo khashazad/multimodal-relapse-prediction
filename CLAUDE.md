@@ -81,3 +81,10 @@ python -m venv env && source env/bin/activate && pip install -r requirements.txt
 ```
 
 Config lives in `configs/{name}.json`. Parameters listed as arrays create a grid search; scalar parameters are fixed across all runs. Keys prefixed with `_` are treated as comments and ignored by the executor. The `executor.exec_name` field names the script in `src/` to invoke per experiment (default: `experiment`). `src/experiment.py` is a placeholder template — replace it with the actual experiment logic. Results go to `outputs/`; logs go to `outputs/logs/`. SLURM settings (partition, memory, time, etc.) are configured in the `slurm` block of the config JSON.
+
+## Good practices
+When you come up with a new plan, save the context and plan in a number file starting with three digits ***_file_name.md and numbering them in order.
+at the start of each plan, summarize the purpose of the plan and the output summary of what was found in the cell in a 'Summarize Section'
+Keep track of which plans were completed in the TASK.md file.
+
+
