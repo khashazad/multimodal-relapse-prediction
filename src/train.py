@@ -224,6 +224,13 @@ def calibrate_threshold(
 @click.option("--augmentation", type=str, default="none")
 @click.option("--mixup", type=bool, default=False)
 @click.option("--mixup_alpha", type=float, default=0.2)
+# Focal loss experiment extensions
+@click.option("--scheduler", type=click.Choice(["cosine", "warmup_constant", "warmup_cosine"]), default="cosine")
+@click.option("--warmup_epochs", type=int, default=0)
+@click.option("--early_stop_metric", type=click.Choice(["auroc", "auprc"]), default="auroc")
+@click.option("--label_smoothing", type=float, default=0.0)
+@click.option("--focal_gamma_pos", type=float, default=None)
+@click.option("--focal_gamma_neg", type=float, default=None)
 def train(
     exp_name: str,
     output_dir: str,
@@ -253,6 +260,12 @@ def train(
     augmentation: str,
     mixup: bool,
     mixup_alpha: float,
+    scheduler: str,
+    warmup_epochs: int,
+    early_stop_metric: str,
+    label_smoothing: float,
+    focal_gamma_pos: float | None,
+    focal_gamma_neg: float | None,
 ) -> None:
     t_start = time.time()
 
@@ -318,24 +331,59 @@ def train(
             pos_weight=torch.tensor(pw, device=device)
         )
     else:
-        print(f"Focal loss — alpha: {focal_alpha}, gamma: {focal_gamma}")
-        criterion = FocalLoss(alpha=focal_alpha, gamma=focal_gamma)
+        focal_kwargs = {"alpha": focal_alpha, "gamma": focal_gamma}
+        if focal_gamma_pos is not None and focal_gamma_neg is not None:
+            focal_kwargs["gamma_pos"] = focal_gamma_pos
+            focal_kwargs["gamma_neg"] = focal_gamma_neg
+            print(f"Asymmetric focal loss — alpha: {focal_alpha}, gamma_pos: {focal_gamma_pos}, gamma_neg: {focal_gamma_neg}")
+        else:
+            print(f"Focal loss — alpha: {focal_alpha}, gamma: {focal_gamma}")
+        criterion = FocalLoss(**focal_kwargs)
 
     # ---- Optimizer & Scheduler ----
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=lr, weight_decay=weight_decay
     )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=epochs
-    )
+
+    if scheduler == "cosine":
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=epochs
+        )
+    elif scheduler in ("warmup_constant", "warmup_cosine"):
+        warmup_steps = max(warmup_epochs, 1)
+        warmup_sched = torch.optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=1e-2, total_iters=warmup_steps
+        )
+        if scheduler == "warmup_constant":
+            main_sched = torch.optim.lr_scheduler.ConstantLR(
+                optimizer, factor=1.0, total_iters=epochs - warmup_steps
+            )
+        else:  # warmup_cosine
+            main_sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=max(epochs - warmup_steps, 1)
+            )
+        lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup_sched, main_sched],
+            milestones=[warmup_steps],
+        )
+        print(f"Scheduler: {scheduler} (warmup={warmup_steps} epochs)")
+    else:
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=epochs
+        )
 
     # ---- DANN setup ----
     has_dann = dann_lambda > 0 and hasattr(model, "discriminator")
     if has_dann:
         print(f"DANN enabled — lambda: {dann_lambda}, warmup: {dann_warmup_epochs} epochs")
 
+    # ---- Label smoothing ----
+    if label_smoothing > 0:
+        print(f"Label smoothing: {label_smoothing}")
+
     # ---- Training ----
-    best_val_auroc = -1.0
+    best_val_score = -1.0
     best_epoch = 0
     best_state = None
     history = []
@@ -362,11 +410,16 @@ def train(
             if not valid.any():
                 continue
 
+            # Apply label smoothing: shift labels away from hard 0/1
+            train_labels = labels[valid]
+            if label_smoothing > 0:
+                train_labels = train_labels * (1 - label_smoothing) + 0.5 * label_smoothing
+
             # Compute loss only on valid-label samples
             if loss_fn == "weighted_bce":
-                loss = criterion(logits[valid], labels[valid])
+                loss = criterion(logits[valid], train_labels)
             else:
-                per_sample = criterion(logits[valid], labels[valid])
+                per_sample = criterion(logits[valid], train_labels)
                 loss = per_sample.mean()
 
             # DANN adversarial loss
@@ -385,7 +438,7 @@ def train(
             epoch_loss += loss.item() * valid.sum().item()
             n_valid += valid.sum().item()
 
-        scheduler.step()
+        lr_scheduler.step()
         avg_loss = epoch_loss / max(n_valid, 1)
 
         # Detect training divergence
@@ -395,12 +448,12 @@ def train(
 
         # Validation
         val_metrics = evaluate(model, val_loader, device, threshold)
-        val_auroc = val_metrics["auroc"]
+        val_score = val_metrics[early_stop_metric]
 
         epoch_record = {
             "epoch": epoch,
             "train_loss": avg_loss,
-            "val_auroc": val_auroc,
+            "val_auroc": val_metrics["auroc"],
             "val_auprc": val_metrics["auprc"],
             "val_f1": val_metrics["f1"],
             "lr": optimizer.param_groups[0]["lr"],
@@ -409,16 +462,16 @@ def train(
             epoch_record["dann_loss"] = epoch_dann_loss / max(n_valid, 1)
         history.append(epoch_record)
 
-        # Early stopping check
-        if not np.isnan(val_auroc) and val_auroc > best_val_auroc:
-            best_val_auroc = val_auroc
+        # Early stopping check (on configurable metric)
+        if not np.isnan(val_score) and val_score > best_val_score:
+            best_val_score = val_score
             best_epoch = epoch
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
 
         if epoch % 10 == 0 or epoch == 1:
             print(
                 f"Epoch {epoch:3d} | loss {avg_loss:.4f} | "
-                f"val AUROC {val_auroc:.4f} | best {best_val_auroc:.4f} (ep {best_epoch})"
+                f"val {early_stop_metric} {val_score:.4f} | best {best_val_score:.4f} (ep {best_epoch})"
             )
 
         if epoch - best_epoch >= patience:
@@ -474,6 +527,10 @@ def train(
             "augmentation": augmentation,
             "mixup": mixup,
             "mixup_alpha": mixup_alpha,
+            "scheduler": scheduler,
+            "warmup_epochs": warmup_epochs,
+            "early_stop_metric": early_stop_metric,
+            "label_smoothing": label_smoothing,
         },
         "model_params": n_params,
         "device": str(device),
@@ -493,6 +550,10 @@ def train(
 
     if num_bottleneck_tokens != 4:
         output["hyperparameters"]["num_bottleneck_tokens"] = num_bottleneck_tokens
+
+    if focal_gamma_pos is not None and focal_gamma_neg is not None:
+        output["hyperparameters"]["focal_gamma_pos"] = focal_gamma_pos
+        output["hyperparameters"]["focal_gamma_neg"] = focal_gamma_neg
 
     if calibration_results:
         output.update(calibration_results)
