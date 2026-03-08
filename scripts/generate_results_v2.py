@@ -1,4 +1,4 @@
-"""Generate docs/results-v2/ markdown files from experiment output JSONs."""
+"""Generate outputs/results-v2/ markdown files from experiment output JSONs."""
 
 import json
 import glob
@@ -7,7 +7,7 @@ import numpy as np
 from collections import defaultdict
 
 OUTPUT_DIR = "outputs"
-RESULTS_DIR = "docs/results-v2"
+RESULTS_DIR = "outputs/results-v2"
 CONFIGS_DIR = "configs"
 
 # New experiments to document
