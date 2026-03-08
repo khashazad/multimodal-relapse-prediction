@@ -142,7 +142,9 @@ SBATCH_CMD+=" --error=$SLURM_LOG_DIR/%A_%a.err"
 [ -n "$SLURM_CONSTRAINT" ] && SBATCH_CMD+=" --constraint=$SLURM_CONSTRAINT"
 [ -n "$SLURM_EXCLUDE" ] && SBATCH_CMD+=" --exclude=$SLURM_EXCLUDE"
 
-SBATCH_CMD+=" --export=NONE,PATH=$PATH,HOME=$HOME,USER=$USER,EXPERIMENT_LANG=$EXPERIMENT_LANG,NAME=$NAME"
+export EXPERIMENT_LANG
+export NAME
+SBATCH_CMD+=" --export=ALL"
 SBATCH_CMD+=" scripts/run.sh"
 
 echo "Submitting $PARAM_COMBINATIONS jobs..."
