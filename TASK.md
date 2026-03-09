@@ -444,10 +444,13 @@
     - Per-patient curves in light blue (#1f77b4, alpha=0.4), bold black mean curve (linewidth=3)
     - Per-patient curves labeled with individual AUROC/AUPRC values
     - Prints mean AUROC/AUPRC for comparison with macro-average from PART 2
+    - **FIX (2026-03-09)**: Fixed KeyError on undefined `feature_cols` by dynamically extracting feature columns from `combined_bp`
   - **Cell 76 (PART 3)**: Visualize Fusion MLP results for 6 bipolar patients
     - Uses existing `_fusion_results` dict with y_true and probs per fold (no retraining needed)
     - Same visualization approach as Cell 73 (1×2 subplot, per-patient + mean curves)
     - Prevalence baseline shown on PR curve (red dashed line)
     - Compares mean AUROC/AUPRC against macro-average from PART 2
   - **Common approach**: Both cells use standard LOPO CV visualization via interpolation (consistent with Cell 77)
-  - **Commit**: b478e9e "Add mean ROC/PR curve visualization to Cell 73 and Cell 76"
+  - **Commits**:
+    - b478e9e "Add mean ROC/PR curve visualization to Cell 73 and Cell 76"
+    - ce1e182 "Fix Cell 73 PART 3: dynamically extract feature_cols from combined_bp"
