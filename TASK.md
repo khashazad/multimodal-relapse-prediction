@@ -456,3 +456,33 @@
     - b478e9e "Add mean ROC/PR curve visualization to Cell 73 and Cell 76"
     - ce1e182 "Fix Cell 73 PART 3: dynamically extract feature_cols from combined_bp"
     - d7a7a2b "Fix Cell 73 PART 3: filter feature_cols to numeric only"
+
+- [x] Fixed Cell 73 PART 3: Complete rewrite of LOPO re-training + curves (2026-03-09):
+  - **5 bugs fixed**:
+    1. **Bug 1 (crash)**: SMOTE reshape used undefined `feature_cols` → fixed to use `len(union_feats)`
+    2. **Bug 2 (wrong data)**: Training used all rows instead of `split_type == "val"` filter → now correctly filters to validation splits only
+    3. **Bug 3 (wrong data)**: Test used all rows instead of `split_type == "test"` filter → now correctly filters to test splits only
+    4. **Bug 4 (wrong features)**: Feature set used all numeric columns (including leaky ones like `relapse`, `day_index`) → now uses `union_feats` only
+    5. **Bug 5 (crash)**: SMOTE applied without guard check → now includes `_n_pos_full >= 2` check and `_k_nn = min(5, _n_pos_full-1)` safety before SMOTE
+  - **Full replacement of PART 3 body**:
+    - Mirrors PART 1 protocol exactly: train on `split_type == "val"` (8 non-test patients), test on `split_type == "test"` (current patient only)
+    - Uses `union_feats` for all feature selection (consistent with PART 1)
+    - SMOTE guard: only apply SMOTE if full windows (non-padded) have ≥2 positives; if k_nn < 1, use RandomOverSampler fallback
+    - Cache file: `cache/transformer_bp_c73_viz_v1.pkl` saved after each fold (crash-safe resumption)
+    - On cache hit: loads results instantly; on cache miss: re-trains all 6 bipolar folds (~5-10 min for d=1024)
+  - **Curve drawing**: Reuses interpolation logic from Cell 77 (mean ROC/PR via FPR/recall grids of 200 points)
+  - **Expected behavior**: First run trains 6 folds and saves cache; subsequent runs load instantly and draw curves
+  - **Verification**: On rerun with cache, `_auroc_mean_p3` should match `_all_results[0]["mean_auroc"]`
+
+- [x] Fixed Cell 73 PART 3: Standardization order bug (2026-03-09 continued):
+  - **Root cause**: PART 3 standardized AFTER creating sequences, fitting StandardScaler on 3D array that included left-padded zeros. PART 1 standardizes BEFORE creating sequences, fitting scaler only on real tabular data.
+  - **Impact**: Scaler mean/variance contaminated by padding zeros → corrupted scaling statistics → AUROC discrepancy (0.805 actual vs 0.849 expected from PART 1)
+  - **Fix**: Replaced standardization logic in PART 3 loop (cell 78, lines ~17677–17700):
+    - OLD: `_X_full, _y_full = _create_seqs_padded_bp(_tr_df, ...)` → fit scaler on `_X_full.reshape(...)` (includes padding zeros)
+    - NEW: Fit scaler on DataFrame FIRST `_sc.fit(_tr_df[union_feats].fillna(0).values)` → scale df → THEN create sequences from already-scaled df
+  - **Code changes**:
+    - Scale DataFrame rows: `_tr_df_s[union_feats] = _scaler.transform(_tr_df[...].values)`
+    - Create sequences from scaled df: `_X_full, _y_full, ... = _create_seqs_padded_bp(_tr_df_s, ...)`
+    - No further rescaling of arrays: `_X_full_sc = _X_full` (already scaled at DataFrame level)
+  - **Cache**: Deleted `cache/transformer_bp_c73_viz_v1.pkl` to force PART 3 retraining with fixed protocol
+  - **Verification**: After retraining (~5-10 min), expect `_auroc_mean_p3` within ~0.01-0.03 of 0.849 (residual stochastic variance from fresh weights)
