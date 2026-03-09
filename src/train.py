@@ -30,7 +30,7 @@ from sklearn.metrics import (
 )
 from torch.utils.data import DataLoader
 
-from src.dataset import MODALITY_ORDER, RelapseDataset, collate_fn
+from src.dataset import RelapseDataset, collate_fn
 from src.losses import FocalLoss
 from src.models import get_model
 
@@ -38,6 +38,7 @@ from src.models import get_model
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def compute_pos_weight(dataset: RelapseDataset) -> float:
     """Compute pos_weight = n_neg / n_pos from training data (valid labels only)."""
@@ -54,13 +55,12 @@ def compute_pos_weight(dataset: RelapseDataset) -> float:
     return n_neg / n_pos
 
 
-def evaluate(
+def _collect_predictions(
     model: nn.Module,
     loader: DataLoader,
     device: torch.device,
-    threshold: float = 0.5,
-) -> dict:
-    """Compute evaluation metrics on a dataloader (only valid-label samples)."""
+) -> tuple[np.ndarray, np.ndarray]:
+    """Collect all (probs, labels) from a loader (only valid-label samples)."""
     model.eval()
     all_probs = []
     all_labels = []
@@ -77,6 +77,21 @@ def evaluate(
                 all_labels.append(batch["label"][valid].cpu().numpy())
 
     if not all_probs:
+        return np.array([]), np.array([])
+
+    return np.concatenate(all_probs), np.concatenate(all_labels).astype(int)
+
+
+def evaluate(
+    model: nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    threshold: float = 0.5,
+) -> dict:
+    """Compute evaluation metrics on a dataloader (only valid-label samples)."""
+    probs, labels = _collect_predictions(model, loader, device)
+
+    if len(probs) == 0:
         return {
             "auroc": float("nan"),
             "auprc": float("nan"),
@@ -86,9 +101,6 @@ def evaluate(
             "accuracy": float("nan"),
             "n_samples": 0,
         }
-
-    probs = np.concatenate(all_probs)
-    labels = np.concatenate(all_labels).astype(int)
 
     # Guard against NaN predictions (training diverged)
     nan_mask = np.isnan(probs)
@@ -121,34 +133,7 @@ def evaluate(
     }
 
 
-def collect_probabilities(
-    model: nn.Module,
-    loader: DataLoader,
-    device: torch.device,
-) -> tuple:
-    """Collect all (probs, labels) from a loader for threshold calibration."""
-    model.eval()
-    all_probs = []
-    all_labels = []
-
-    with torch.no_grad():
-        for batch in loader:
-            batch = {k: v.to(device) for k, v in batch.items()}
-            logits = model(batch)
-            probs = torch.sigmoid(logits)
-
-            valid = batch["label_valid"]
-            if valid.any():
-                all_probs.append(probs[valid].cpu().numpy())
-                all_labels.append(batch["label"][valid].cpu().numpy())
-
-    if not all_probs:
-        return np.array([]), np.array([])
-
-    return np.concatenate(all_probs), np.concatenate(all_labels).astype(int)
-
-
-def calibrate_threshold(
+def find_optimal_threshold(
     model: nn.Module,
     val_loader: DataLoader,
     test_loader: DataLoader,
@@ -160,7 +145,7 @@ def calibrate_threshold(
     val F1, then reports val and test metrics at both 0.5 and the calibrated
     threshold.
     """
-    val_probs, val_labels = collect_probabilities(model, val_loader, device)
+    val_probs, val_labels = _collect_predictions(model, val_loader, device)
 
     if len(val_probs) == 0:
         return {"calibrated_threshold": 0.5}
@@ -188,9 +173,165 @@ def calibrate_threshold(
     }
 
 
+GRAD_CLIP_NORM = 1.0
+LOG_EVERY = 10
+
+
+# ---------------------------------------------------------------------------
+# Setup helpers
+# ---------------------------------------------------------------------------
+
+
+def _setup_reproducibility(seed: int) -> torch.device:
+    """Set random seeds and return the compute device."""
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Device: {device}")
+    return device
+
+
+def _load_fold_data(
+    data_dir: str, fold: int, batch_size: int, augmentation: str
+) -> tuple[
+    RelapseDataset, RelapseDataset, RelapseDataset, DataLoader, DataLoader, DataLoader
+]:
+    """Load datasets and create dataloaders for a fold."""
+    data_path = Path(data_dir) / f"fold_{fold}"
+    print(f"Loading fold {fold} from {data_path}...")
+
+    train_ds = RelapseDataset(data_path / "train.pkl", augmentation=augmentation)
+    val_ds = RelapseDataset(data_path / "val.pkl")
+    test_ds = RelapseDataset(data_path / "test.pkl")
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
+        drop_last=False,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=collate_fn,
+        drop_last=False,
+    )
+    test_loader = DataLoader(
+        test_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=collate_fn,
+        drop_last=False,
+    )
+
+    print(f"Train: {len(train_ds)} windows | Val: {len(val_ds)} | Test: {len(test_ds)}")
+    return train_ds, val_ds, test_ds, train_loader, val_loader, test_loader
+
+
+def _build_model(
+    model_name: str,
+    data_dir: str,
+    d_model: int,
+    nhead: int,
+    num_encoder_layers: int,
+    num_fusion_layers: int,
+    dropout: float,
+    num_bottleneck_tokens: int,
+    dann_lambda: float,
+    device: torch.device,
+) -> tuple[nn.Module, int, int]:
+    """Instantiate model and return (model, n_params, window_size)."""
+    metadata_path = Path(data_dir) / "metadata.json"
+    with open(metadata_path) as f:
+        metadata = json.load(f)
+    window_size = metadata["window_size"]
+
+    model = get_model(
+        model_name,
+        d_model=d_model,
+        nhead=nhead,
+        num_encoder_layers=num_encoder_layers,
+        num_fusion_layers=num_fusion_layers,
+        dropout=dropout,
+        window_size=window_size,
+        num_bottleneck_tokens=num_bottleneck_tokens,
+        dann_lambda=dann_lambda,
+    ).to(device)
+
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Model: {model_name} | Parameters: {n_params:,}")
+    return model, n_params, window_size
+
+
+def _build_loss(
+    loss_fn: str,
+    train_ds: RelapseDataset,
+    focal_alpha: float,
+    focal_gamma: float,
+    focal_gamma_pos: float | None,
+    focal_gamma_neg: float | None,
+    device: torch.device,
+) -> nn.Module:
+    """Configure and return the loss function."""
+    if loss_fn == "weighted_bce":
+        pw = compute_pos_weight(train_ds)
+        print(f"Weighted BCE — pos_weight: {pw:.2f}")
+        return nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pw, device=device))
+
+    focal_kwargs = {"alpha": focal_alpha, "gamma": focal_gamma}
+    if focal_gamma_pos is not None and focal_gamma_neg is not None:
+        focal_kwargs["gamma_pos"] = focal_gamma_pos
+        focal_kwargs["gamma_neg"] = focal_gamma_neg
+        print(
+            f"Asymmetric focal loss — alpha: {focal_alpha}, gamma_pos: {focal_gamma_pos}, gamma_neg: {focal_gamma_neg}"
+        )
+    else:
+        print(f"Focal loss — alpha: {focal_alpha}, gamma: {focal_gamma}")
+    return FocalLoss(**focal_kwargs)
+
+
+def _build_scheduler(
+    optimizer: torch.optim.Optimizer,
+    scheduler: str,
+    epochs: int,
+    warmup_epochs: int,
+) -> torch.optim.lr_scheduler.LRScheduler:
+    """Configure and return the LR scheduler."""
+    if scheduler == "cosine":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+
+    if scheduler in ("warmup_constant", "warmup_cosine"):
+        warmup_steps = max(warmup_epochs, 1)
+        warmup_sched = torch.optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=1e-2, total_iters=warmup_steps
+        )
+        if scheduler == "warmup_constant":
+            main_sched = torch.optim.lr_scheduler.ConstantLR(
+                optimizer, factor=1.0, total_iters=epochs - warmup_steps
+            )
+        else:  # warmup_cosine
+            main_sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=max(epochs - warmup_steps, 1)
+            )
+        lr_sched = torch.optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup_sched, main_sched],
+            milestones=[warmup_steps],
+        )
+        print(f"Scheduler: {scheduler} (warmup={warmup_steps} epochs)")
+        return lr_sched
+
+    return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+
+
 # ---------------------------------------------------------------------------
 # Main training loop
 # ---------------------------------------------------------------------------
+
 
 @click.command()
 # Executor-injected params
@@ -209,7 +350,9 @@ def calibrate_threshold(
 @click.option("--batch_size", type=int, default=32)
 @click.option("--epochs", type=int, default=100)
 @click.option("--patience", type=int, default=15)
-@click.option("--loss_fn", type=click.Choice(["weighted_bce", "focal"]), default="weighted_bce")
+@click.option(
+    "--loss_fn", type=click.Choice(["weighted_bce", "focal"]), default="weighted_bce"
+)
 @click.option("--focal_alpha", type=float, default=0.25)
 @click.option("--focal_gamma", type=float, default=2.0)
 @click.option("--seed", type=int, default=42)
@@ -225,9 +368,15 @@ def calibrate_threshold(
 @click.option("--mixup", type=bool, default=False)
 @click.option("--mixup_alpha", type=float, default=0.2)
 # Focal loss experiment extensions
-@click.option("--scheduler", type=click.Choice(["cosine", "warmup_constant", "warmup_cosine"]), default="cosine")
+@click.option(
+    "--scheduler",
+    type=click.Choice(["cosine", "warmup_constant", "warmup_cosine"]),
+    default="cosine",
+)
 @click.option("--warmup_epochs", type=int, default=0)
-@click.option("--early_stop_metric", type=click.Choice(["auroc", "auprc"]), default="auroc")
+@click.option(
+    "--early_stop_metric", type=click.Choice(["auroc", "auprc"]), default="auroc"
+)
 @click.option("--label_smoothing", type=float, default=0.0)
 @click.option("--focal_gamma_pos", type=float, default=None)
 @click.option("--focal_gamma_neg", type=float, default=None)
@@ -269,114 +418,48 @@ def train(
 ) -> None:
     t_start = time.time()
 
-    # Reproducibility
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
+    device = _setup_reproducibility(seed)
 
     # ---- Data ----
-    data_path = Path(data_dir) / f"fold_{fold}"
-    print(f"Loading fold {fold} from {data_path}...")
-
-    train_ds = RelapseDataset(data_path / "train.pkl", augmentation=augmentation)
-    val_ds = RelapseDataset(data_path / "val.pkl")
-    test_ds = RelapseDataset(data_path / "test.pkl")
-
-    train_loader = DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True,
-        collate_fn=collate_fn, drop_last=False,
+    train_ds, val_ds, test_ds, train_loader, val_loader, test_loader = _load_fold_data(
+        data_dir, fold, batch_size, augmentation
     )
-    val_loader = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False,
-        collate_fn=collate_fn, drop_last=False,
-    )
-    test_loader = DataLoader(
-        test_ds, batch_size=batch_size, shuffle=False,
-        collate_fn=collate_fn, drop_last=False,
-    )
-
-    print(f"Train: {len(train_ds)} windows | Val: {len(val_ds)} | Test: {len(test_ds)}")
 
     # ---- Model ----
-    # Read window_size from metadata
-    metadata_path = Path(data_dir) / "metadata.json"
-    with open(metadata_path) as f:
-        metadata = json.load(f)
-    window_size = metadata["window_size"]
-
-    model = get_model(
+    model, n_params, window_size = _build_model(
         model_name,
-        d_model=d_model,
-        nhead=nhead,
-        num_encoder_layers=num_encoder_layers,
-        num_fusion_layers=num_fusion_layers,
-        dropout=dropout,
-        window_size=window_size,
-        num_bottleneck_tokens=num_bottleneck_tokens,
-        dann_lambda=dann_lambda,
-    ).to(device)
-
-    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Model: {model_name} | Parameters: {n_params:,}")
-
-    # ---- Loss ----
-    if loss_fn == "weighted_bce":
-        pw = compute_pos_weight(train_ds)
-        print(f"Weighted BCE — pos_weight: {pw:.2f}")
-        criterion = nn.BCEWithLogitsLoss(
-            pos_weight=torch.tensor(pw, device=device)
-        )
-    else:
-        focal_kwargs = {"alpha": focal_alpha, "gamma": focal_gamma}
-        if focal_gamma_pos is not None and focal_gamma_neg is not None:
-            focal_kwargs["gamma_pos"] = focal_gamma_pos
-            focal_kwargs["gamma_neg"] = focal_gamma_neg
-            print(f"Asymmetric focal loss — alpha: {focal_alpha}, gamma_pos: {focal_gamma_pos}, gamma_neg: {focal_gamma_neg}")
-        else:
-            print(f"Focal loss — alpha: {focal_alpha}, gamma: {focal_gamma}")
-        criterion = FocalLoss(**focal_kwargs)
-
-    # ---- Optimizer & Scheduler ----
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=lr, weight_decay=weight_decay
+        data_dir,
+        d_model,
+        nhead,
+        num_encoder_layers,
+        num_fusion_layers,
+        dropout,
+        num_bottleneck_tokens,
+        dann_lambda,
+        device,
     )
 
-    if scheduler == "cosine":
-        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=epochs
-        )
-    elif scheduler in ("warmup_constant", "warmup_cosine"):
-        warmup_steps = max(warmup_epochs, 1)
-        warmup_sched = torch.optim.lr_scheduler.LinearLR(
-            optimizer, start_factor=1e-2, total_iters=warmup_steps
-        )
-        if scheduler == "warmup_constant":
-            main_sched = torch.optim.lr_scheduler.ConstantLR(
-                optimizer, factor=1.0, total_iters=epochs - warmup_steps
-            )
-        else:  # warmup_cosine
-            main_sched = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=max(epochs - warmup_steps, 1)
-            )
-        lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
-            optimizer,
-            schedulers=[warmup_sched, main_sched],
-            milestones=[warmup_steps],
-        )
-        print(f"Scheduler: {scheduler} (warmup={warmup_steps} epochs)")
-    else:
-        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=epochs
-        )
+    # ---- Loss ----
+    criterion = _build_loss(
+        loss_fn,
+        train_ds,
+        focal_alpha,
+        focal_gamma,
+        focal_gamma_pos,
+        focal_gamma_neg,
+        device,
+    )
+
+    # ---- Optimizer & Scheduler ----
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    lr_scheduler = _build_scheduler(optimizer, scheduler, epochs, warmup_epochs)
 
     # ---- DANN setup ----
     has_dann = dann_lambda > 0 and hasattr(model, "discriminator")
     if has_dann:
-        print(f"DANN enabled — lambda: {dann_lambda}, warmup: {dann_warmup_epochs} epochs")
+        print(
+            f"DANN enabled — lambda: {dann_lambda}, warmup: {dann_warmup_epochs} epochs"
+        )
 
     # ---- Label smoothing ----
     if label_smoothing > 0:
@@ -413,7 +496,9 @@ def train(
             # Apply label smoothing: shift labels away from hard 0/1
             train_labels = labels[valid]
             if label_smoothing > 0:
-                train_labels = train_labels * (1 - label_smoothing) + 0.5 * label_smoothing
+                train_labels = (
+                    train_labels * (1 - label_smoothing) + 0.5 * label_smoothing
+                )
 
             # Compute loss only on valid-label samples
             if loss_fn == "weighted_bce":
@@ -432,7 +517,7 @@ def train(
 
             optimizer.zero_grad()
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            nn.utils.clip_grad_norm_(model.parameters(), max_norm=GRAD_CLIP_NORM)
             optimizer.step()
 
             epoch_loss += loss.item() * valid.sum().item()
@@ -468,7 +553,7 @@ def train(
             best_epoch = epoch
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
 
-        if epoch % 10 == 0 or epoch == 1:
+        if epoch % LOG_EVERY == 0 or epoch == 1:
             print(
                 f"Epoch {epoch:3d} | loss {avg_loss:.4f} | "
                 f"val {early_stop_metric} {val_score:.4f} | best {best_val_score:.4f} (ep {best_epoch})"
@@ -487,13 +572,17 @@ def train(
     test_final = evaluate(model, test_loader, device, threshold)
 
     print(f"\nBest epoch: {best_epoch}")
-    print(f"Val  — AUROC: {val_final['auroc']:.4f} | AUPRC: {val_final['auprc']:.4f} | F1: {val_final['f1']:.4f}")
-    print(f"Test — AUROC: {test_final['auroc']:.4f} | AUPRC: {test_final['auprc']:.4f} | F1: {test_final['f1']:.4f}")
+    print(
+        f"Val  — AUROC: {val_final['auroc']:.4f} | AUPRC: {val_final['auprc']:.4f} | F1: {val_final['f1']:.4f}"
+    )
+    print(
+        f"Test — AUROC: {test_final['auroc']:.4f} | AUPRC: {test_final['auprc']:.4f} | F1: {test_final['f1']:.4f}"
+    )
 
     # ---- Threshold calibration (optional) ----
     calibration_results = {}
     if calibrate_threshold:
-        calibration_results = calibrate_threshold_fn(
+        calibration_results = find_optimal_threshold(
             model, val_loader, test_loader, device
         )
         ct = calibration_results["calibrated_threshold"]
@@ -565,10 +654,6 @@ def train(
 
     print(f"\nResults saved to {out_path / output_filename}")
     print(f"Total time: {time.time() - t_start:.1f}s")
-
-
-# Rename to avoid Click option name collision
-calibrate_threshold_fn = calibrate_threshold
 
 
 def _apply_mixup(
