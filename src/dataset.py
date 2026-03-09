@@ -16,10 +16,12 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .feature_extractor import MODALITY_DIMS
 
 # Canonical modality ordering used throughout the model
 MODALITY_ORDER: List[str] = ["accel", "gyr", "hr", "step", "sleep"]
+
+JITTER_STD = 0.03
+SCALE_RANGE = (0.9, 1.1)
 
 
 class RelapseDataset(Dataset):
@@ -74,9 +76,7 @@ class RelapseDataset(Dataset):
             )
 
         # Padding mask: (W,) bool — True = real day, False = left-padding
-        sample["padding_mask"] = torch.from_numpy(
-            w["padding_mask"].astype(np.bool_)
-        )
+        sample["padding_mask"] = torch.from_numpy(w["padding_mask"].astype(np.bool_))
 
         # Last-day label (the prediction target)
         last_label = int(w["labels"][-1])
@@ -100,10 +100,12 @@ class RelapseDataset(Dataset):
     def _augment(self, feats: np.ndarray) -> np.ndarray:
         """Apply augmentation transforms to feature array (W, F)."""
         if self.augmentation in ("jitter", "all"):
-            noise = np.random.normal(0, 0.03, size=feats.shape).astype(np.float32)
+            noise = np.random.normal(0, JITTER_STD, size=feats.shape).astype(np.float32)
             feats = feats + noise
         if self.augmentation in ("scale", "all"):
-            scale = np.random.uniform(0.9, 1.1, size=(1, feats.shape[1])).astype(np.float32)
+            scale = np.random.uniform(*SCALE_RANGE, size=(1, feats.shape[1])).astype(
+                np.float32
+            )
             feats = feats * scale
         return feats
 

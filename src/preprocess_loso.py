@@ -32,7 +32,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-import pandas as pd
 
 from .data_loader import MultimodalDataLoader, SequenceData
 from .feature_extractor import MODALITY_DIMS, MODALITY_FEATURE_NAMES, FeatureExtractor
@@ -42,8 +41,8 @@ from .feature_extractor import MODALITY_DIMS, MODALITY_FEATURE_NAMES, FeatureExt
 # Preprocessor
 # ---------------------------------------------------------------------------
 
-class LOSOPreprocessor:
 
+class LOSOPreprocessor:
     def __init__(
         self,
         data_root: str,
@@ -55,11 +54,11 @@ class LOSOPreprocessor:
         sleep_files_dir: Optional[str] = None,
         annotations_dir: Optional[str] = None,
     ) -> None:
-        self.data_root    = Path(data_root)
-        self.track        = track
-        self.window_size  = window_size
-        self.stride       = stride
-        self.output_dir   = Path(output_dir)
+        self.data_root = Path(data_root)
+        self.track = track
+        self.window_size = window_size
+        self.stride = stride
+        self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Optional external source directories for supplementary files.
@@ -68,17 +67,15 @@ class LOSOPreprocessor:
         self.sleep_files_dir = Path(sleep_files_dir) if sleep_files_dir else None
         self.annotations_dir = Path(annotations_dir) if annotations_dir else None
 
-        self.loader            = MultimodalDataLoader(data_root, track)
+        self.loader = MultimodalDataLoader(data_root, track)
         self.feature_extractor = feature_extractor or FeatureExtractor()
-        self.patient_scalers:  Dict[str, Dict] = {}
+        self.patient_scalers: Dict[str, Dict] = {}
 
     # ------------------------------------------------------------------
     # Supplementary file staging
     # ------------------------------------------------------------------
 
-    def _stage_supplementary_files(
-        self, patient_id: Optional[str] = None
-    ) -> None:
+    def _stage_supplementary_files(self, patient_id: Optional[str] = None) -> None:
         """Copy sleep files and annotation CSVs into their sequence directories.
 
         Sleep files and relapse annotations are distributed separately from the
@@ -106,7 +103,7 @@ class LOSOPreprocessor:
         patients = [patient_id] if patient_id else self.loader.get_patients()
 
         n_sleep = 0
-        n_ann   = 0
+        n_ann = 0
 
         for pid in patients:
             for seq_name in self.loader.get_sequences(pid):
@@ -127,8 +124,9 @@ class LOSOPreprocessor:
                         n_ann += 1
 
         scope = patient_id if patient_id else "all patients"
-        print(f"  Staged {n_sleep} sleep file(s), {n_ann} annotation file(s) "
-              f"for {scope}.")
+        print(
+            f"  Staged {n_sleep} sleep file(s), {n_ann} annotation file(s) for {scope}."
+        )
 
     # ------------------------------------------------------------------
     # Label / day-list extraction
@@ -148,7 +146,7 @@ class LOSOPreprocessor:
         label_mask: (N,) bool  — True where label is valid
         """
         if seq.relapses is not None and len(seq.relapses):
-            relapses = seq.relapses.iloc[:-1].copy()   # drop extra-day bug row
+            relapses = seq.relapses.iloc[:-1].copy()  # drop extra-day bug row
             day_list = sorted(relapses["day_index"].tolist())
         else:
             # Fall back to union of day_index values across sensor modalities
@@ -163,17 +161,17 @@ class LOSOPreprocessor:
             relapses = None
 
         N = len(day_list)
-        labels     = np.full(N, -1, dtype=np.int32)
+        labels = np.full(N, -1, dtype=np.int32)
         label_mask = np.zeros(N, dtype=bool)
 
         for i, day_idx in enumerate(day_list):
             if seq.split == "train":
-                labels[i]     = 0
+                labels[i] = 0
                 label_mask[i] = True
             elif relapses is not None and "relapse" in relapses.columns:
                 row = relapses[relapses["day_index"] == day_idx]
                 if len(row):
-                    labels[i]     = int(row.iloc[0]["relapse"])
+                    labels[i] = int(row.iloc[0]["relapse"])
                     label_mask[i] = True
             # test_* with no relapse column: labels stay -1, mask stays False
             # (after prepare_test_labels.py, test_* sequences have real labels
@@ -185,9 +183,7 @@ class LOSOPreprocessor:
     # Per-patient raw feature extraction
     # ------------------------------------------------------------------
 
-    def _extract_patient_raw(
-        self, patient_id: str
-    ) -> Dict[str, Dict]:
+    def _extract_patient_raw(self, patient_id: str) -> Dict[str, Dict]:
         """Extract raw (un-normalised) features for all sequences of a patient.
 
         Returns
@@ -212,7 +208,7 @@ class LOSOPreprocessor:
             day_list, labels, label_mask = self._get_labels_and_days(seq)
 
             if not day_list:
-                print(f"no days found, skipping.")
+                print("no days found, skipping.")
                 continue
 
             mod_results = self.feature_extractor.extract_all_modalities_for_sequence(
@@ -221,11 +217,11 @@ class LOSOPreprocessor:
 
             patient_raw[seq_name] = {
                 "modality_features": {m: r["features"] for m, r in mod_results.items()},
-                "modality_masks":    {m: r["mask"]     for m, r in mod_results.items()},
-                "day_list":   day_list,
-                "labels":     labels,
+                "modality_masks": {m: r["mask"] for m, r in mod_results.items()},
+                "day_list": day_list,
+                "labels": labels,
                 "label_mask": label_mask,
-                "split":      seq.split,
+                "split": seq.split,
             }
             print(f"done ({time.time() - t0:.1f}s, {len(day_list)} days)")
 
@@ -255,18 +251,20 @@ class LOSOPreprocessor:
                 if not seq_name.startswith("train_"):
                     continue
                 feat = seq_data["modality_features"][mod]
-                msk  = seq_data["modality_masks"][mod]
+                msk = seq_data["modality_masks"][mod]
                 if msk.any():
                     train_chunks.append(feat[msk])
 
             if train_chunks:
                 all_train = np.concatenate(train_chunks, axis=0)  # (M, F)
                 mean = np.nanmean(all_train, axis=0).astype(np.float32)
-                std  = np.nanstd(all_train,  axis=0).astype(np.float32)
+                std = np.nanstd(all_train, axis=0).astype(np.float32)
             else:
-                print(f"  Warning: no train_* data for modality '{mod}'. Using identity normalization.")
+                print(
+                    f"  Warning: no train_* data for modality '{mod}'. Using identity normalization."
+                )
                 mean = np.zeros(dim, dtype=np.float32)
-                std  = np.ones(dim,  dtype=np.float32)
+                std = np.ones(dim, dtype=np.float32)
 
             # Replace zero std (constant features) with 1 to avoid division by zero
             std = np.where(std < 1e-8, 1.0, std).astype(np.float32)
@@ -304,51 +302,55 @@ class LOSOPreprocessor:
         -------
         List of window dicts.
         """
-        W          = self.window_size
-        day_list   = seq_data["day_list"]
-        N          = len(day_list)
-        mod_feats  = seq_data["modality_features"]
-        mod_masks  = seq_data["modality_masks"]
-        labels     = seq_data["labels"]
+        W = self.window_size
+        day_list = seq_data["day_list"]
+        N = len(day_list)
+        mod_feats = seq_data["modality_features"]
+        mod_masks = seq_data["modality_masks"]
+        labels = seq_data["labels"]
         label_mask = seq_data["label_mask"]
 
         windows: List[Dict] = []
 
         for t in range(N):
             # Number of zero-padded positions on the left
-            pad_len    = max(0, W - 1 - t)
-            real_len   = W - pad_len
+            pad_len = max(0, W - 1 - t)
+            real_len = W - pad_len
             real_start = t - real_len + 1  # first real index into day_list
 
-            feats  = {mod: np.zeros((W, MODALITY_DIMS[mod]), dtype=np.float32)
-                      for mod in MODALITY_DIMS}
+            feats = {
+                mod: np.zeros((W, MODALITY_DIMS[mod]), dtype=np.float32)
+                for mod in MODALITY_DIMS
+            }
             mmasks = {mod: np.zeros(W, dtype=bool) for mod in MODALITY_DIMS}
-            pmask  = np.zeros(W, dtype=bool)
-            lbls   = np.full(W, -1,  dtype=np.int32)
-            lmask  = np.zeros(W, dtype=bool)
+            pmask = np.zeros(W, dtype=bool)
+            lbls = np.full(W, -1, dtype=np.int32)
+            lmask = np.zeros(W, dtype=bool)
             days_w = [-1] * W
 
             for w in range(pad_len, W):
                 src = real_start + (w - pad_len)
                 for mod in MODALITY_DIMS:
-                    feats[mod][w]  = mod_feats[mod][src]
+                    feats[mod][w] = mod_feats[mod][src]
                     mmasks[mod][w] = mod_masks[mod][src]
-                pmask[w]  = True
-                lbls[w]   = labels[src]
-                lmask[w]  = label_mask[src]
+                pmask[w] = True
+                lbls[w] = labels[src]
+                lmask[w] = label_mask[src]
                 days_w[w] = day_list[src]
 
-            windows.append({
-                "patient_id":     patient_id,
-                "sequence_name":  seq_name,
-                "window_end_day": day_list[t],
-                "window_days":    days_w,
-                "features":       feats,
-                "modality_masks": mmasks,
-                "padding_mask":   pmask,
-                "labels":         lbls,
-                "label_mask":     lmask,
-            })
+            windows.append(
+                {
+                    "patient_id": patient_id,
+                    "sequence_name": seq_name,
+                    "window_end_day": day_list[t],
+                    "window_days": days_w,
+                    "features": feats,
+                    "modality_masks": mmasks,
+                    "padding_mask": pmask,
+                    "labels": lbls,
+                    "label_mask": lmask,
+                }
+            )
 
         return windows
 
@@ -356,24 +358,18 @@ class LOSOPreprocessor:
     # Orchestration
     # ------------------------------------------------------------------
 
-    def process_single_patient(
-        self, patient_id: str
-    ) -> Dict[str, List[Dict]]:
-        """Extract, normalise, and window one patient.
+    def _run_patient_pipeline(self, patient_id: str) -> Dict[str, List[Dict]]:
+        """Extract features, normalize, create windows for one patient.
 
         Returns
         -------
-        {sequence_name: [window_dicts]}
+        {sequence_name: [window_dicts]}, or empty dict if no sequences.
         Scalers are stored in ``self.patient_scalers[patient_id]``.
         """
-        print(f"\nStaging supplementary files for {patient_id}...")
-        self._stage_supplementary_files(patient_id=patient_id)
-
         t_patient = time.time()
-        print(f"\nProcessing patient {patient_id}...")
 
         t0 = time.time()
-        print(f"  Extracting features...")
+        print("  Extracting features...")
         patient_raw = self._extract_patient_raw(patient_id)
         if not patient_raw:
             print(f"  Skipping {patient_id}: no sequences found.")
@@ -381,13 +377,13 @@ class LOSOPreprocessor:
         print(f"  Feature extraction done ({time.time() - t0:.1f}s)")
 
         t0 = time.time()
-        print(f"  Normalizing...")
+        print("  Normalizing...")
         patient_norm, scalers = self._normalize_patient(patient_raw)
         self.patient_scalers[patient_id] = scalers
         print(f"  Normalization done ({time.time() - t0:.1f}s)")
 
         t0 = time.time()
-        print(f"  Creating windows...")
+        print("  Creating windows...")
         patient_windows: Dict[str, List[Dict]] = {}
         for seq_name, seq_data in patient_norm.items():
             wins = self._create_windows(seq_data, patient_id, seq_name)
@@ -405,6 +401,20 @@ class LOSOPreprocessor:
 
         return patient_windows
 
+    def process_single_patient(self, patient_id: str) -> Dict[str, List[Dict]]:
+        """Extract, normalise, and window one patient.
+
+        Returns
+        -------
+        {sequence_name: [window_dicts]}
+        Scalers are stored in ``self.patient_scalers[patient_id]``.
+        """
+        print(f"\nStaging supplementary files for {patient_id}...")
+        self._stage_supplementary_files(patient_id=patient_id)
+
+        print(f"\nProcessing patient {patient_id}...")
+        return self._run_patient_pipeline(patient_id)
+
     def process_all_patients(self) -> Dict[str, Dict[str, List[Dict]]]:
         """Extract, normalise, and window all patients.
 
@@ -416,44 +426,10 @@ class LOSOPreprocessor:
         patients = self.loader.get_patients()
 
         for pi, patient_id in enumerate(patients, 1):
-            t_patient = time.time()
             print(f"\n[{pi}/{len(patients)}] Processing patient {patient_id}...")
-
-            # 1. Raw feature extraction
-            t0 = time.time()
-            print(f"  Extracting features...")
-            patient_raw = self._extract_patient_raw(patient_id)
-            if not patient_raw:
-                print(f"  Skipping {patient_id}: no sequences found.")
-                continue
-            print(f"  Feature extraction done ({time.time() - t0:.1f}s)")
-
-            # 2. Per-patient normalisation
-            t0 = time.time()
-            print(f"  Normalizing...")
-            patient_norm, scalers = self._normalize_patient(patient_raw)
-            self.patient_scalers[patient_id] = scalers
-            print(f"  Normalization done ({time.time() - t0:.1f}s)")
-
-            # 3. Create windows per sequence
-            t0 = time.time()
-            print(f"  Creating windows...")
-            patient_windows: Dict[str, List[Dict]] = {}
-            for seq_name, seq_data in patient_norm.items():
-                wins = self._create_windows(seq_data, patient_id, seq_name)
-                patient_windows[seq_name] = wins
-                lbl = seq_data["labels"]
-                lmk = seq_data["label_mask"]
-                print(
-                    f"  {seq_name}: {len(seq_data['day_list'])} days "
-                    f"({int((lbl[lmk] == 0).sum())} stable, "
-                    f"{int((lbl[lmk] == 1).sum())} relapse) "
-                    f"→ {len(wins)} windows"
-                )
-            print(f"  Windowing done ({time.time() - t0:.1f}s)")
-            print(f"  Patient {patient_id} total: {time.time() - t_patient:.1f}s")
-
-            all_data[patient_id] = patient_windows
+            patient_windows = self._run_patient_pipeline(patient_id)
+            if patient_windows:
+                all_data[patient_id] = patient_windows
 
         return all_data
 
@@ -476,8 +452,8 @@ class LOSOPreprocessor:
 
         for fold_id, test_patient in enumerate(patients):
             train_wins: List[Dict] = []
-            val_wins:   List[Dict] = []
-            test_wins:  List[Dict] = []
+            val_wins: List[Dict] = []
+            test_wins: List[Dict] = []
 
             for pid, seqs in all_data.items():
                 for seq_name, wins in seqs.items():
@@ -489,18 +465,19 @@ class LOSOPreprocessor:
                         test_wins.extend(wins)
 
             splits[fold_id] = {
-                "test_patient":  test_patient,
+                "test_patient": test_patient,
                 "train_patients": [p for p in patients if p != test_patient],
                 "train": train_wins,
-                "val":   val_wins,
-                "test":  test_wins,
+                "val": val_wins,
+                "test": test_wins,
                 "train_stats": self._compute_stats(train_wins),
-                "val_stats":   self._compute_stats(val_wins),
-                "test_stats":  self._compute_stats(test_wins),
+                "val_stats": self._compute_stats(val_wins),
+                "test_stats": self._compute_stats(test_wins),
             }
 
-            ts, vs, tes = (splits[fold_id][k] for k in
-                           ("train_stats", "val_stats", "test_stats"))
+            ts, vs, tes = (
+                splits[fold_id][k] for k in ("train_stats", "val_stats", "test_stats")
+            )
             print(
                 f"Fold {fold_id} (test: {test_patient}): "
                 f"train {ts['n_windows']} win "
@@ -515,18 +492,23 @@ class LOSOPreprocessor:
     @staticmethod
     def _compute_stats(windows: List[Dict]) -> Dict:
         if not windows:
-            return dict(n_windows=0, n_stable_days=0, n_relapse_days=0,
-                        n_unlabeled_days=0, n_padded_positions=0)
+            return dict(
+                n_windows=0,
+                n_stable_days=0,
+                n_relapse_days=0,
+                n_unlabeled_days=0,
+                n_padded_positions=0,
+            )
 
-        all_l  = np.concatenate([w["labels"]       for w in windows])
-        all_lm = np.concatenate([w["label_mask"]   for w in windows])
-        all_pm = np.concatenate([w["padding_mask"]  for w in windows])
+        all_l = np.concatenate([w["labels"] for w in windows])
+        all_lm = np.concatenate([w["label_mask"] for w in windows])
+        all_pm = np.concatenate([w["padding_mask"] for w in windows])
 
         return {
-            "n_windows":          len(windows),
-            "n_stable_days":      int(((all_l == 0) & all_lm & all_pm).sum()),
-            "n_relapse_days":     int(((all_l == 1) & all_lm & all_pm).sum()),
-            "n_unlabeled_days":   int((~all_lm & all_pm).sum()),
+            "n_windows": len(windows),
+            "n_stable_days": int(((all_l == 0) & all_lm & all_pm).sum()),
+            "n_relapse_days": int(((all_l == 1) & all_lm & all_pm).sum()),
+            "n_unlabeled_days": int((~all_lm & all_pm).sum()),
             "n_padded_positions": int((~all_pm).sum()),
         }
 
@@ -551,26 +533,26 @@ class LOSOPreprocessor:
 
         # Metadata
         metadata = {
-            "track":       self.track,
+            "track": self.track,
             "window_size": self.window_size,
-            "stride":      self.stride,
-            "n_folds":     len(loso_splits),
+            "stride": self.stride,
+            "n_folds": len(loso_splits),
             "modality_dims": MODALITY_DIMS,
             "modality_feature_names": MODALITY_FEATURE_NAMES,
             "window_format": "per_modality_dict",
             "normalization": {
-                "method":   "per_patient_zscore",
-                "fit_on":   "train_sequences_only",
-                "clip":     [-5.0, 5.0],
+                "method": "per_patient_zscore",
+                "fit_on": "train_sequences_only",
+                "clip": [-5.0, 5.0],
                 "nan_fill": 0.0,
             },
             "folds": {
                 fold_id: {
-                    "test_patient":   fd["test_patient"],
+                    "test_patient": fd["test_patient"],
                     "train_patients": fd["train_patients"],
-                    "train_stats":    fd["train_stats"],
-                    "val_stats":      fd["val_stats"],
-                    "test_stats":     fd["test_stats"],
+                    "train_stats": fd["train_stats"],
+                    "val_stats": fd["val_stats"],
+                    "test_stats": fd["test_stats"],
                 }
                 for fold_id, fd in loso_splits.items()
             },
@@ -603,19 +585,25 @@ class LOSOPreprocessor:
                             fold_dir / f"{split_name}_{mod}_masks.npy",
                             np.stack([w["modality_masks"][mod] for w in wins]),
                         )
-                    np.save(fold_dir / f"{split_name}_labels.npy",
-                            np.stack([w["labels"]       for w in wins]))
-                    np.save(fold_dir / f"{split_name}_label_masks.npy",
-                            np.stack([w["label_mask"]   for w in wins]))
-                    np.save(fold_dir / f"{split_name}_padding_masks.npy",
-                            np.stack([w["padding_mask"] for w in wins]))
+                    np.save(
+                        fold_dir / f"{split_name}_labels.npy",
+                        np.stack([w["labels"] for w in wins]),
+                    )
+                    np.save(
+                        fold_dir / f"{split_name}_label_masks.npy",
+                        np.stack([w["label_mask"] for w in wins]),
+                    )
+                    np.save(
+                        fold_dir / f"{split_name}_padding_masks.npy",
+                        np.stack([w["padding_mask"] for w in wins]),
+                    )
 
                     win_meta = [
                         {
-                            "patient_id":    w["patient_id"],
+                            "patient_id": w["patient_id"],
                             "sequence_name": w["sequence_name"],
                             "window_end_day": w["window_end_day"],
-                            "window_days":   w["window_days"],
+                            "window_days": w["window_days"],
                         }
                         for w in wins
                     ]

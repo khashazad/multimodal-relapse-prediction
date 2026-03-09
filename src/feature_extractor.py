@@ -14,6 +14,7 @@ pandas groupby to avoid row-level Python loops over large parquet files.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -25,66 +26,140 @@ from scipy.stats import skew as sp_skew
 from .data_loader import SequenceData
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+ACTIVE_MAGNITUDE_THRESHOLD = 1.5
+SEDENTARY_MAGNITUDE_THRESHOLD = 0.2
+HRV_LF_RANGE = (0.04, 0.15)
+HRV_HF_RANGE = (0.15, 0.40)
+HRV_TOTAL_RANGE = (0.003, 0.40)
+WINDOWS_PER_DAY = 288.0
+HOURS_PER_DAY = 24.0
+
+# ---------------------------------------------------------------------------
 # Feature dimension registry
 # ---------------------------------------------------------------------------
 
 MODALITY_DIMS: Dict[str, int] = {
     "accel": 38,
-    "gyr":   38,
-    "hr":    26,
-    "step":  10,
-    "sleep":  9,
+    "gyr": 38,
+    "hr": 26,
+    "step": 10,
+    "sleep": 9,
 }
 
 ACCEL_FEATURE_NAMES: List[str] = [
     # Per-axis stats: 7 stats × 4 signals (x, y, z, mag) = 28
-    "x_mean", "x_std", "x_min", "x_max", "x_median", "x_skew", "x_kurt",
-    "y_mean", "y_std", "y_min", "y_max", "y_median", "y_skew", "y_kurt",
-    "z_mean", "z_std", "z_min", "z_max", "z_median", "z_skew", "z_kurt",
-    "mag_mean", "mag_std", "mag_min", "mag_max", "mag_median", "mag_skew", "mag_kurt",
+    "x_mean",
+    "x_std",
+    "x_min",
+    "x_max",
+    "x_median",
+    "x_skew",
+    "x_kurt",
+    "y_mean",
+    "y_std",
+    "y_min",
+    "y_max",
+    "y_median",
+    "y_skew",
+    "y_kurt",
+    "z_mean",
+    "z_std",
+    "z_min",
+    "z_max",
+    "z_median",
+    "z_skew",
+    "z_kurt",
+    "mag_mean",
+    "mag_std",
+    "mag_min",
+    "mag_max",
+    "mag_median",
+    "mag_skew",
+    "mag_kurt",
     # Activity-level (4)
-    "total_energy", "zero_crossing_rate", "pct_active", "pct_sedentary",
+    "total_energy",
+    "zero_crossing_rate",
+    "pct_active",
+    "pct_sedentary",
     # Frequency-domain (6)
-    "dominant_freq", "spectral_entropy",
-    "power_0_1hz", "power_1_3hz", "power_3_8hz", "power_8plus_hz",
+    "dominant_freq",
+    "spectral_entropy",
+    "power_0_1hz",
+    "power_1_3hz",
+    "power_3_8hz",
+    "power_8plus_hz",
 ]  # 38 total
 
 GYR_FEATURE_NAMES: List[str] = ACCEL_FEATURE_NAMES  # same layout
 
 HR_FEATURE_NAMES: List[str] = [
     # HR stats (7)
-    "hr_mean", "hr_std", "hr_min", "hr_max", "hr_median", "hr_skew", "hr_kurt",
+    "hr_mean",
+    "hr_std",
+    "hr_min",
+    "hr_max",
+    "hr_median",
+    "hr_skew",
+    "hr_kurt",
     # RR stats (7)
-    "rr_mean", "rr_std", "rr_min", "rr_max", "rr_median", "rr_skew", "rr_kurt",
+    "rr_mean",
+    "rr_std",
+    "rr_min",
+    "rr_max",
+    "rr_median",
+    "rr_skew",
+    "rr_kurt",
     # HRV time-domain (4)
-    "sdnn", "rmssd", "pnn50", "hrv_tri_index",
+    "sdnn",
+    "rmssd",
+    "pnn50",
+    "hrv_tri_index",
     # HRV frequency-domain (4)
-    "lf_power", "hf_power", "lf_hf_ratio", "total_power",
+    "lf_power",
+    "hf_power",
+    "lf_hf_ratio",
+    "total_power",
     # Poincaré (3)
-    "sd1", "sd2", "sd1_sd2",
+    "sd1",
+    "sd2",
+    "sd1_sd2",
     # Coverage (1)
     "coverage_fraction",
 ]  # 26 total
 
 STEP_FEATURE_NAMES: List[str] = [
-    "total_steps", "walking_steps", "running_steps", "distance", "calories",
+    "total_steps",
+    "walking_steps",
+    "running_steps",
+    "distance",
+    "calories",
     "n_segments",
-    "first_activity_hour", "last_activity_hour", "longest_gap_hours", "gap_std_hours",
+    "first_activity_hour",
+    "last_activity_hour",
+    "longest_gap_hours",
+    "gap_std_hours",
 ]  # 10 total
 
 SLEEP_FEATURE_NAMES: List[str] = [
-    "total_sleep_min", "n_episodes",
-    "sleep_onset_sin", "sleep_onset_cos",
-    "wake_time_sin",   "wake_time_cos",
+    "total_sleep_min",
+    "n_episodes",
+    "sleep_onset_sin",
+    "sleep_onset_cos",
+    "wake_time_sin",
+    "wake_time_cos",
     "longest_bout_hours",
-    "onset_7day_rolling_deviation", "wake_7day_rolling_deviation",
+    "onset_7day_rolling_deviation",
+    "wake_7day_rolling_deviation",
 ]  # 9 total
 
 MODALITY_FEATURE_NAMES: Dict[str, List[str]] = {
     "accel": ACCEL_FEATURE_NAMES,
-    "gyr":   GYR_FEATURE_NAMES,
-    "hr":    HR_FEATURE_NAMES,
-    "step":  STEP_FEATURE_NAMES,
+    "gyr": GYR_FEATURE_NAMES,
+    "hr": HR_FEATURE_NAMES,
+    "step": STEP_FEATURE_NAMES,
     "sleep": SLEEP_FEATURE_NAMES,
 }
 
@@ -92,6 +167,7 @@ MODALITY_FEATURE_NAMES: Dict[str, List[str]] = {
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _time_to_seconds(s: pd.Series) -> pd.Series:
     """Parse time column → float seconds.
@@ -103,17 +179,20 @@ def _time_to_seconds(s: pd.Series) -> pd.Series:
         return pd.Series([], dtype=np.float32)
     first = s.iloc[0]
     if isinstance(first, str):
-        h   = s.str[:2].astype(np.int32)
-        m   = s.str[3:5].astype(np.int32)
+        h = s.str[:2].astype(np.int32)
+        m = s.str[3:5].astype(np.int32)
         sec = s.str[6:].astype(np.float32)
         return (h * 3600 + m * 60 + sec).astype(np.float32)
     # datetime.time objects stored in object-dtype columns.
     # np.fromiter with pre-allocated count is significantly faster than .apply().
     arr = s.to_numpy()
     secs = np.fromiter(
-        (t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1_000_000.0
-         for t in arr),
-        dtype=np.float64, count=len(arr),
+        (
+            t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1_000_000.0
+            for t in arr
+        ),
+        dtype=np.float64,
+        count=len(arr),
     )
     return pd.Series(secs.astype(np.float32), index=s.index)
 
@@ -156,9 +235,15 @@ def _empty_features(n_days: int, n_feats: int) -> Tuple[np.ndarray, np.ndarray]:
     )
 
 
+def _day_position_map(day_list: List[int]) -> Dict[int, int]:
+    """Map day index → position in day_list."""
+    return {d: i for i, d in enumerate(day_list)}
+
+
 # ---------------------------------------------------------------------------
 # Main extractor
 # ---------------------------------------------------------------------------
+
 
 class FeatureExtractor:
     """Extract per-day features for all five modalities of a patient sequence.
@@ -182,9 +267,9 @@ class FeatureExtractor:
         sample_rate_hr: int = 5,
         coverage_threshold: float = 0.25,
     ) -> None:
-        self.win_secs    = window_size_minutes * 60
-        self.fs_imu      = sample_rate_imu
-        self.fs_hr       = sample_rate_hr
+        self.win_secs = window_size_minutes * 60
+        self.fs_imu = sample_rate_imu
+        self.fs_hr = sample_rate_hr
         # Minimum windows per day to consider coverage sufficient
         self.min_windows = int(coverage_threshold * (24 * 60 / window_size_minutes))
 
@@ -270,7 +355,7 @@ class FeatureExtractor:
             return features, mask
 
         day_index_set = set(day_list)
-        day_pos = {d: i for i, d in enumerate(day_list)}
+        day_pos = _day_position_map(day_list)
 
         # Pre-filter to only relevant days before any heavy work
         df = df[df["day_index"].isin(day_index_set)].copy()
@@ -279,9 +364,7 @@ class FeatureExtractor:
 
         # Compute magnitude and window bin in one pass
         df["_mag"] = np.sqrt((df[meas_cols] ** 2).sum(axis=1))
-        df["_win"] = (
-            _time_to_seconds(df["time"]) // self.win_secs
-        ).astype(np.int32)
+        df["_win"] = (_time_to_seconds(df["time"]) // self.win_secs).astype(np.int32)
 
         all_cols = meas_cols + ["_mag"]
         grp_keys = ["day_index", "_win"]
@@ -310,8 +393,10 @@ class FeatureExtractor:
 
         # --- Activity features (4): vectorised --------------------------
         df["_mag2"] = df["_mag"] ** 2
-        df["_active"] = (df["_mag"] > 1.5).astype(np.float32)
-        df["_sedentary"] = (df["_mag"] < 0.2).astype(np.float32)
+        df["_active"] = (df["_mag"] > ACTIVE_MAGNITUDE_THRESHOLD).astype(np.float32)
+        df["_sedentary"] = (df["_mag"] < SEDENTARY_MAGNITUDE_THRESHOLD).astype(
+            np.float32
+        )
 
         act_grp = df.groupby(grp_keys)
         energy_win = act_grp["_mag2"].sum()
@@ -324,19 +409,20 @@ class FeatureExtractor:
             if len(mag) < 2:
                 return np.nan
             return float(
-                np.sum(np.diff(np.sign(mag - mag.mean())) != 0)
-                / (len(mag) - 1)
+                np.sum(np.diff(np.sign(mag - mag.mean())) != 0) / (len(mag) - 1)
             )
 
         zcr_win = act_grp["_mag"].apply(_zcr)
 
         # Combine activity features and average per day
-        act_win = pd.DataFrame({
-            "energy": energy_win,
-            "zcr": zcr_win,
-            "pct_active": pct_act_win,
-            "pct_sedentary": pct_sed_win,
-        })
+        act_win = pd.DataFrame(
+            {
+                "energy": energy_win,
+                "zcr": zcr_win,
+                "pct_active": pct_act_win,
+                "pct_sedentary": pct_sed_win,
+            }
+        )
         act_day = act_win.groupby(level="day_index").mean()
 
         # --- FFT features (6): per-window loop (fast enough) ------------
@@ -344,11 +430,14 @@ class FeatureExtractor:
         for (day_idx, win_id), win_df in df.groupby(grp_keys):
             fft_rows[(day_idx, win_id)] = self._fft_features(win_df["_mag"].values)
 
-        fft_df = pd.DataFrame.from_dict(fft_rows, orient="index",
-                                         columns=["dom_freq", "spec_entropy",
-                                                   "p01", "p13", "p38", "p8plus"])
-        fft_df.index = pd.MultiIndex.from_tuples(fft_df.index,
-                                                   names=["day_index", "_win"])
+        fft_df = pd.DataFrame.from_dict(
+            fft_rows,
+            orient="index",
+            columns=["dom_freq", "spec_entropy", "p01", "p13", "p38", "p8plus"],
+        )
+        fft_df.index = pd.MultiIndex.from_tuples(
+            fft_df.index, names=["day_index", "_win"]
+        )
         fft_day = fft_df.groupby(level="day_index").mean()
 
         # --- Assemble per-day feature vectors ---------------------------
@@ -359,12 +448,16 @@ class FeatureExtractor:
             mask[pos] = True
 
             stat_vals = stat_day.loc[day_idx].values.astype(np.float32)
-            act_vals = (act_day.loc[day_idx].values.astype(np.float32)
-                        if day_idx in act_day.index
-                        else np.full(4, np.nan, dtype=np.float32))
-            fft_vals = (fft_day.loc[day_idx].values.astype(np.float32)
-                        if day_idx in fft_day.index
-                        else np.full(6, np.nan, dtype=np.float32))
+            act_vals = (
+                act_day.loc[day_idx].values.astype(np.float32)
+                if day_idx in act_day.index
+                else np.full(4, np.nan, dtype=np.float32)
+            )
+            fft_vals = (
+                fft_day.loc[day_idx].values.astype(np.float32)
+                if day_idx in fft_day.index
+                else np.full(6, np.nan, dtype=np.float32)
+            )
 
             features[pos] = np.concatenate([stat_vals, act_vals, fft_vals])
 
@@ -422,12 +515,10 @@ class FeatureExtractor:
         )
 
         df = df.copy()
-        df["_win"] = (
-            _time_to_seconds(df["time"]) // self.win_secs
-        ).astype(np.int32)
+        df["_win"] = (_time_to_seconds(df["time"]) // self.win_secs).astype(np.int32)
 
         day_index_set = set(day_list)
-        day_pos = {d: i for i, d in enumerate(day_list)}
+        day_pos = _day_position_map(day_list)
 
         for day_idx, day_df in df.groupby("day_index"):
             if day_idx not in day_index_set:
@@ -437,7 +528,7 @@ class FeatureExtractor:
             mask[pos] = True
 
             n_windows = day_df["_win"].nunique()
-            coverage = n_windows / 288.0
+            coverage = n_windows / WINDOWS_PER_DAY
 
             # HR stats (7)
             if hr_col is not None:
@@ -449,7 +540,7 @@ class FeatureExtractor:
             # RR stats (7) — use all non-zero RR values
             if rr_col is not None:
                 rr_all = day_df[rr_col].dropna().values.astype(np.float64)
-                rr_nz  = rr_all[rr_all > 0]
+                rr_nz = rr_all[rr_all > 0]
                 rr_stats = _seven_stats(rr_nz)
             else:
                 rr_nz = np.array([], dtype=np.float64)
@@ -488,8 +579,8 @@ class FeatureExtractor:
             return [np.nan] * 4
 
         diff = np.diff(rr_clean)
-        sdnn  = float(np.std(rr_clean, ddof=1))
-        rmssd = float(np.sqrt(np.mean(diff ** 2)))
+        sdnn = float(np.std(rr_clean, ddof=1))
+        rmssd = float(np.sqrt(np.mean(diff**2)))
         pnn50 = float(np.mean(np.abs(diff) > 50.0) * 100.0)
 
         bw = 1000.0 / 128.0  # 7.8125 ms bins
@@ -508,9 +599,9 @@ class FeatureExtractor:
         t -= t[0]
         sig = (rr_clean - rr_clean.mean()).astype(np.float64)
 
-        lf_ang = np.linspace(0.04,  0.15,  100) * 2 * np.pi
-        hf_ang = np.linspace(0.15,  0.40,  200) * 2 * np.pi
-        tp_ang = np.linspace(0.003, 0.40,  500) * 2 * np.pi
+        lf_ang = np.linspace(*HRV_LF_RANGE, 100) * 2 * np.pi
+        hf_ang = np.linspace(*HRV_HF_RANGE, 200) * 2 * np.pi
+        tp_ang = np.linspace(*HRV_TOTAL_RANGE, 500) * 2 * np.pi
 
         try:
             lf_p = float(np.trapz(lombscargle(t, sig, lf_ang), lf_ang / (2 * np.pi)))
@@ -545,7 +636,7 @@ class FeatureExtractor:
         mask = np.zeros(n, dtype=bool)
 
         day_index_set = set(day_list)
-        day_pos = {d: i for i, d in enumerate(day_list)}
+        day_pos = _day_position_map(day_list)
 
         for day_idx, day_df in df.groupby("start_date_index"):
             if day_idx not in day_index_set:
@@ -555,33 +646,57 @@ class FeatureExtractor:
             mask[pos] = True
 
             # Aggregate features
-            total_steps   = float(day_df["totalSteps"].sum())   if "totalSteps"   in day_df else np.nan
-            walking_steps = float(day_df["stepsWalking"].sum()) if "stepsWalking" in day_df else np.nan
-            running_steps = float(day_df["stepsRunning"].sum()) if "stepsRunning" in day_df else np.nan
-            distance      = float(day_df["distance"].sum())     if "distance"     in day_df else np.nan
-            calories      = float(day_df["calories"].sum())     if "calories"     in day_df else np.nan
-            n_segments    = float(len(day_df))
+            total_steps = (
+                float(day_df["totalSteps"].sum()) if "totalSteps" in day_df else np.nan
+            )
+            walking_steps = (
+                float(day_df["stepsWalking"].sum())
+                if "stepsWalking" in day_df
+                else np.nan
+            )
+            running_steps = (
+                float(day_df["stepsRunning"].sum())
+                if "stepsRunning" in day_df
+                else np.nan
+            )
+            distance = (
+                float(day_df["distance"].sum()) if "distance" in day_df else np.nan
+            )
+            calories = (
+                float(day_df["calories"].sum()) if "calories" in day_df else np.nan
+            )
+            n_segments = float(len(day_df))
 
             # Temporal features
             if "start_time" in day_df.columns and "end_time" in day_df.columns:
                 start_hrs = _time_to_seconds(day_df["start_time"]) / 3600.0
-                end_hrs   = _time_to_seconds(day_df["end_time"])   / 3600.0
+                end_hrs = _time_to_seconds(day_df["end_time"]) / 3600.0
 
                 first_hour = float(start_hrs.min())
-                last_hour  = float(end_hrs.max())
+                last_hour = float(end_hrs.max())
 
-                order     = start_hrs.argsort().values
-                s_sorted  = start_hrs.values[order]
-                e_sorted  = end_hrs.values[order]
-                gaps      = np.maximum(s_sorted[1:] - e_sorted[:-1], 0.0)
+                order = start_hrs.argsort().values
+                s_sorted = start_hrs.values[order]
+                e_sorted = end_hrs.values[order]
+                gaps = np.maximum(s_sorted[1:] - e_sorted[:-1], 0.0)
                 longest_gap = float(gaps.max()) if len(gaps) else 0.0
-                gap_std     = float(gaps.std()) if len(gaps) else 0.0
+                gap_std = float(gaps.std()) if len(gaps) else 0.0
             else:
                 first_hour = last_hour = longest_gap = gap_std = np.nan
 
             features[pos] = np.array(
-                [total_steps, walking_steps, running_steps, distance, calories,
-                 n_segments, first_hour, last_hour, longest_gap, gap_std],
+                [
+                    total_steps,
+                    walking_steps,
+                    running_steps,
+                    distance,
+                    calories,
+                    n_segments,
+                    first_hour,
+                    last_hour,
+                    longest_gap,
+                    gap_std,
+                ],
                 dtype=np.float32,
             )
 
@@ -601,7 +716,7 @@ class FeatureExtractor:
 
         # Parse all episodes once
         # Assign each episode to the day the person woke up (end_date_index)
-        episodes_by_day: Dict[int, List[Dict]] = {}
+        episodes_by_day: Dict[int, List[Dict]] = defaultdict(list)
 
         for _, row in df.iterrows():
             end_day = int(row["end_date_index"])
@@ -610,7 +725,7 @@ class FeatureExtractor:
 
             try:
                 start_s = self._sleep_time_to_secs(str(row["start_time"]))
-                end_s   = self._sleep_time_to_secs(str(row["end_time"]))
+                end_s = self._sleep_time_to_secs(str(row["end_time"]))
             except Exception:  # noqa: BLE001
                 continue
 
@@ -620,54 +735,55 @@ class FeatureExtractor:
                 dur_hrs = (end_s - start_s) / 3600.0
 
             onset_hr = start_s / 3600.0
-            wake_hr  = end_s   / 3600.0
+            wake_hr = end_s / 3600.0
 
-            if end_day not in episodes_by_day:
-                episodes_by_day[end_day] = []
             episodes_by_day[end_day].append(
                 {"dur": dur_hrs, "onset": onset_hr, "wake": wake_hr}
             )
 
         # Per-day summary features + raw onset/wake for rolling stats
         onset_hours = np.full(n, np.nan)
-        wake_hours  = np.full(n, np.nan)
+        wake_hours = np.full(n, np.nan)
 
-        day_pos = {d: i for i, d in enumerate(day_list)}
+        day_pos = _day_position_map(day_list)
 
         for day_idx in day_list:
             eps = episodes_by_day.get(day_idx, [])
             pos = day_pos[day_idx]
 
             if not eps:
-                features[pos, 0] = 0.0   # total_sleep_min
-                features[pos, 1] = 0.0   # n_episodes
-                features[pos, 6] = 0.0   # longest_bout_hours
+                features[pos, 0] = 0.0  # total_sleep_min
+                features[pos, 1] = 0.0  # n_episodes
+                features[pos, 6] = 0.0  # longest_bout_hours
                 # timing features stay NaN; rolling deviations computed later
                 continue
 
             mask[pos] = True
             durs = [e["dur"] for e in eps]
-            total_min     = sum(durs) * 60.0
-            n_episodes    = len(eps)
-            longest_bout  = max(durs)
+            total_min = sum(durs) * 60.0
+            n_episodes = len(eps)
+            longest_bout = max(durs)
 
             # Main sleep = longest episode
-            main_idx  = int(np.argmax(durs))
-            onset_hr  = eps[main_idx]["onset"]
-            wake_hr   = eps[main_idx]["wake"]
+            main_idx = int(np.argmax(durs))
+            onset_hr = eps[main_idx]["onset"]
+            wake_hr = eps[main_idx]["wake"]
 
             onset_hours[pos] = onset_hr
-            wake_hours[pos]  = wake_hr
+            wake_hours[pos] = wake_hr
 
-            onset_sin = np.sin(2 * np.pi * onset_hr / 24.0)
-            onset_cos = np.cos(2 * np.pi * onset_hr / 24.0)
-            wake_sin  = np.sin(2 * np.pi * wake_hr  / 24.0)
-            wake_cos  = np.cos(2 * np.pi * wake_hr  / 24.0)
+            onset_sin = np.sin(2 * np.pi * onset_hr / HOURS_PER_DAY)
+            onset_cos = np.cos(2 * np.pi * onset_hr / HOURS_PER_DAY)
+            wake_sin = np.sin(2 * np.pi * wake_hr / HOURS_PER_DAY)
+            wake_cos = np.cos(2 * np.pi * wake_hr / HOURS_PER_DAY)
 
             features[pos, :7] = [
-                total_min, n_episodes,
-                onset_sin, onset_cos,
-                wake_sin,  wake_cos,
+                total_min,
+                n_episodes,
+                onset_sin,
+                onset_cos,
+                wake_sin,
+                wake_cos,
                 longest_bout,
             ]
 
@@ -675,14 +791,14 @@ class FeatureExtractor:
         for i in range(n):
             # onset deviation
             if not np.isnan(onset_hours[i]):
-                prior = onset_hours[max(0, i - 7):i]
+                prior = onset_hours[max(0, i - 7) : i]
                 valid = prior[~np.isnan(prior)]
                 if len(valid):
                     features[i, 7] = _circ_diff(onset_hours[i], float(valid.mean()))
 
             # wake deviation
             if not np.isnan(wake_hours[i]):
-                prior = wake_hours[max(0, i - 7):i]
+                prior = wake_hours[max(0, i - 7) : i]
                 valid = prior[~np.isnan(prior)]
                 if len(valid):
                     features[i, 8] = _circ_diff(wake_hours[i], float(valid.mean()))

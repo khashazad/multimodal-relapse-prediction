@@ -38,9 +38,7 @@ class FocalLoss(nn.Module):
         self.gamma_pos = gamma_pos
         self.gamma_neg = gamma_neg
 
-    def forward(
-        self, logits: torch.Tensor, targets: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         probs = torch.sigmoid(logits)
         ce = nn.functional.binary_cross_entropy_with_logits(
             logits, targets, reduction="none"

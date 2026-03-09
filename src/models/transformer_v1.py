@@ -74,9 +74,7 @@ class ModalityEncoder(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.encoder = nn.TransformerEncoder(
-            encoder_layer, num_layers=num_layers
-        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
     def forward(
         self,
@@ -166,9 +164,7 @@ class FusionTransformer(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.encoder = nn.TransformerEncoder(
-            encoder_layer, num_layers=num_layers
-        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
     def forward(
         self,
@@ -238,17 +234,19 @@ class MultimodalRelapseTransformer(BaseRelapseModel):
         super().__init__()
 
         # Per-modality encoders (independent weights)
-        self.encoders = nn.ModuleDict({
-            mod: ModalityEncoder(
-                input_dim=MODALITY_DIMS[mod],
-                d_model=d_model,
-                nhead=nhead,
-                num_layers=num_encoder_layers,
-                dropout=dropout,
-                max_seq_len=window_size + 1,  # +1 for CLS token
-            )
-            for mod in MODALITY_ORDER
-        })
+        self.encoders = nn.ModuleDict(
+            {
+                mod: ModalityEncoder(
+                    input_dim=MODALITY_DIMS[mod],
+                    d_model=d_model,
+                    nhead=nhead,
+                    num_layers=num_encoder_layers,
+                    dropout=dropout,
+                    max_seq_len=window_size + 1,  # +1 for CLS token
+                )
+                for mod in MODALITY_ORDER
+            }
+        )
 
         # Fusion transformer
         self.fusion = FusionTransformer(
@@ -278,57 +276,7 @@ class MultimodalRelapseTransformer(BaseRelapseModel):
         -------
         logits : (B,) — raw logits (apply sigmoid for probabilities)
         """
-        padding_mask = batch["padding_mask"]  # (B, W)
-
-        modality_tokens = []
-        modality_available = []
-
-        for mod in MODALITY_ORDER:
-            features = batch[f"{mod}_features"]    # (B, W, F_mod)
-            mod_mask = batch[f"{mod}_mask"]         # (B, W)
-
-            # Encode this modality
-            cls_out = self.encoders[mod](features, padding_mask, mod_mask)
-            modality_tokens.append(cls_out)
-
-            # A modality is "available" if it has data for ANY day in the window
-            avail = mod_mask.any(dim=1)  # (B,)
-            modality_available.append(avail)
-
-        # Stack modality tokens: (B, M, d_model)
-        tokens = torch.stack(modality_tokens, dim=1)
-        # Stack availability: (B, M)
-        avail_mask = torch.stack(modality_available, dim=1)
-
-        # Fuse modalities
-        fused = self.fusion(tokens, avail_mask)  # (B, d_model)
-
-        # Classify
-        logits = self.classifier(fused).squeeze(-1)  # (B,)
-
-        return logits
-
-    def encode_modalities(self, batch: Dict[str, torch.Tensor]) -> tuple:
-        """Encode modalities and return (fused, tokens, avail_mask).
-
-        Useful for subclasses and auxiliary heads (e.g. DANN) that need
-        access to the fused representation without re-running forward.
-        """
-        padding_mask = batch["padding_mask"]
-
-        modality_tokens = []
-        modality_available = []
-
-        for mod in MODALITY_ORDER:
-            features = batch[f"{mod}_features"]
-            mod_mask = batch[f"{mod}_mask"]
-            cls_out = self.encoders[mod](features, padding_mask, mod_mask)
-            modality_tokens.append(cls_out)
-            avail = mod_mask.any(dim=1)
-            modality_available.append(avail)
-
-        tokens = torch.stack(modality_tokens, dim=1)
-        avail_mask = torch.stack(modality_available, dim=1)
+        tokens, avail_mask = self._encode_modalities(batch, MODALITY_ORDER)
         fused = self.fusion(tokens, avail_mask)
-
-        return fused, tokens, avail_mask
+        logits = self.classifier(fused).squeeze(-1)
+        return logits
