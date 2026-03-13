@@ -1,5 +1,18 @@
 # Task Tracking
 
+## In Progress
+
+### 2026-03-13: Next Phase Experiments
+Baseline: d=1024 all-9 AUROC=0.793. Uses exported data from `data/processed/patient_data_export_all9.pkl`.
+
+**SLURM framework** (`src/next_phase.py` + 3 configs):
+- [ ] **Phase A**: `bash scripts/submit_slurm.sh -n next_phase_transformer` — 27 jobs (9 folds × d=256/512/1024)
+- [ ] **Phase B**: `bash scripts/submit_slurm.sh -n next_phase_tcn` — 108 jobs (9 folds × 12 TCN configs)
+- [ ] **Phase C**: `bash scripts/submit_slurm.sh -n next_phase_features` — 36 jobs (9 folds × 4 feature sets)
+- [ ] **Aggregate**: Collect per-fold JSONs from `outputs/next_phase/`, compute ensemble + significance
+
+**Notebook** (`notebooks/next_phase.ipynb`) — same experiments, self-contained for local execution.
+
 ## Completed Tasks
 
 ### 2026-02-04

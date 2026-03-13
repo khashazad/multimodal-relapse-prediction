@@ -8,3 +8,4 @@ scipy
 torch
 pyarrow
 scikit-learn
+imbalanced-learn

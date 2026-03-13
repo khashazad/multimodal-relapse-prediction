@@ -1,0 +1,37 @@
+{
+    "_description": "Phase C: Feature expansion with d=1024 transformer. 9 folds × 4 feature sets = 36 jobs.",
+    "method": "feature_exp",
+    "fold": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    "feature_set": ["top5", "interactions", "top10", "all"],
+    "d_model": 1024,
+    "n_layers": 3,
+    "dropout": 0.3,
+    "nhead": 4,
+    "seq_len": 7,
+    "batch_size": 32,
+    "lr": 1e-3,
+    "n_epochs": 80,
+    "seed": 42,
+    "data_path": "data/processed/patient_data_export_all9.pkl",
+    "executor": {
+        "exec_name": "next_phase",
+        "output_dir": "outputs/next_phase",
+        "log_dir": "outputs/next_phase/logs"
+    },
+    "slurm": {
+        "cores": 4,
+        "nodes": 1,
+        "time": "0-04:00",
+        "memory": "16G",
+        "partition": "gpunodes",
+        "account": "",
+        "email": "Khashayar1924@gmail.com",
+        "email_type": "END,FAIL",
+        "log_dir": "outputs/slurm_logs",
+        "job_name": "np_features",
+        "exclude": "",
+        "constraint": "",
+        "gres": "gpu:rtx_4090:1",
+        "julia_path": ""
+    }
+}
