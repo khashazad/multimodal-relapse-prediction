@@ -1,10 +1,10 @@
 {
-    "_description": "Phase C: Feature expansion with d=1024 transformer. 9 folds × 4 feature sets = 36 jobs.",
+    "_description": "Ablation: layer depth sweep with focal loss (best from ablation). 9 folds x 6 depths = 54 jobs.",
     "method": "feature_exp",
     "fold": [0, 1, 2, 3, 4, 5, 6, 7, 8],
-    "feature_set": ["top5", "interactions", "top10", "all"],
+    "feature_set": "all",
     "d_model": 1024,
-    "n_layers": 3,
+    "n_layers": [1, 2, 3, 4, 5, 6],
     "dropout": 0.3,
     "nhead": 4,
     "seq_len": 7,
@@ -13,10 +13,13 @@
     "n_epochs": 80,
     "seed": 42,
     "data_path": "data/processed/patient_data_export_all9.pkl",
+    "loss_type": "focal",
+    "focal_gamma": 1.0,
+    "focal_alpha": 0.5,
     "executor": {
-        "exec_name": "next_phase",
-        "output_dir": "outputs/next_phase",
-        "log_dir": "outputs/next_phase/logs"
+        "exec_name": "ablation",
+        "output_dir": "outputs/ablations",
+        "log_dir": "outputs/ablations/logs"
     },
     "slurm": {
         "cores": 4,
@@ -28,7 +31,7 @@
         "email": "Khashayar1924@gmail.com",
         "email_type": "END,FAIL",
         "log_dir": "outputs/slurm_logs",
-        "job_name": "np_features",
+        "job_name": "abl_depth",
         "exclude": "gpunode13",
         "constraint": "",
         "gres": "gpu:1",

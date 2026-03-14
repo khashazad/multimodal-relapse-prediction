@@ -141,10 +141,7 @@ dmypy.json
 cython_debug/
 
 # Ignore the outputs
-outputs/**/*json
-outputs/slurm_logs/
-outputs/logs/*out
-outputs/logs/*err
+outputs/
 
 # Ignore the figures
 figures/*pdf

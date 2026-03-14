@@ -329,7 +329,9 @@ Baseline: d=1024 all-9 AUROC=0.793. Uses exported data from `data/processed/pati
   - Cache: combo_d2048_l{3,4}_dr0{2,3,4}.pkl in cache/transformer_bp_pad_hpgrid/
 
 ## Pending Tasks
-- None
+- [ ] Ablation depth sweep: `bash scripts/submit_slurm.sh -n ablation_depth` (54 jobs, 9 folds × 6 n_layers)
+- [x] Training recipe sweep: 216 jobs (SLURM 56279). No config beats focal baseline (0.845). Best all-9-fold: adam/none/noclip = 0.842. Oracle = 0.890. Cosine schedule hurt. AdamW unstable without clip.
+- [x] Documented in `012_training_recipe_results.md`
 
 ### 2026-03-07 (continued)
 - [x] Created `001_methods_results_narrative.md`: full methods/results narrative for paper covering all modeling lines (feature engineering, traditional ML, BumbleBee AE+iNNE, supervised Transformer). Sections: Feature Engineering, Traditional ML Baselines, Unsupervised Anomaly Detection, Supervised Transformer (Bipolar), Discussion of Failure Modes.
@@ -486,6 +488,17 @@ Baseline: d=1024 all-9 AUROC=0.793. Uses exported data from `data/processed/pati
   - **Curve drawing**: Reuses interpolation logic from Cell 77 (mean ROC/PR via FPR/recall grids of 200 points)
   - **Expected behavior**: First run trains 6 folds and saves cache; subsequent runs load instantly and draw curves
   - **Verification**: On rerun with cache, `_auroc_mean_p3` should match `_all_results[0]["mean_auroc"]`
+
+### 2026-03-13
+- [x] Ablation study completed (621 SLURM jobs across 7 experiments):
+  - Baseline (BCE): AUROC=0.808, AUPRC=0.689
+  - **Focal loss (γ=1.0, α=0.5): AUROC=0.845, AUPRC=0.762** ← winner
+  - Focal+Smooth (γ=1.0, α=0.3, ε=0.25): AUROC=0.838, AUPRC=0.775
+  - Label smooth (ε=0.2): AUROC=0.833, AUPRC=0.752
+  - Stoch depth (p=0.3): AUROC=0.820, AUPRC=0.711
+  - Weight decay (λ=0.001): AUROC=0.812, AUPRC=0.701
+  - RoPE: AUROC=0.756, AUPRC=0.649 (hurt performance)
+  - Results documented in `011_ablation_results.md`
 
 - [x] Fixed Cell 73 PART 3: Standardization order bug (2026-03-09 continued):
   - **Root cause**: PART 3 standardized AFTER creating sequences, fitting StandardScaler on 3D array that included left-padded zeros. PART 1 standardizes BEFORE creating sequences, fitting scaler only on real tabular data.

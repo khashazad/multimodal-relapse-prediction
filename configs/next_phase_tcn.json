@@ -21,16 +21,16 @@
         "cores": 4,
         "nodes": 1,
         "time": "0-01:00",
-        "memory": "8G",
+        "memory": "4G",
         "partition": "gpunodes",
         "account": "",
         "email": "Khashayar1924@gmail.com",
         "email_type": "END,FAIL",
         "log_dir": "outputs/slurm_logs",
         "job_name": "np_tcn",
-        "exclude": "",
+        "exclude": "gpunode13",
         "constraint": "",
-        "gres": "gpu:rtx_4090:1",
+        "gres": "gpu:1",
         "julia_path": ""
     }
 }

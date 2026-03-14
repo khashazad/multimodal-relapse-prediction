@@ -1,8 +1,8 @@
 {
-    "_description": "Phase C: Feature expansion with d=1024 transformer. 9 folds × 4 feature sets = 36 jobs.",
+    "_description": "Training recipe sweep: optimizer, LR schedule, grad clipping, warmup. Focal loss locked (γ=1.0, α=0.5). 9 folds × 2 opt × 2 sched × 2 clip × 3 warmup = 216 jobs. warmup_epochs ignored when lr_schedule=none (36 redundant combos accepted).",
     "method": "feature_exp",
     "fold": [0, 1, 2, 3, 4, 5, 6, 7, 8],
-    "feature_set": ["top5", "interactions", "top10", "all"],
+    "feature_set": "all",
     "d_model": 1024,
     "n_layers": 3,
     "dropout": 0.3,
@@ -13,10 +13,17 @@
     "n_epochs": 80,
     "seed": 42,
     "data_path": "data/processed/patient_data_export_all9.pkl",
+    "loss_type": "focal",
+    "focal_gamma": 1.0,
+    "focal_alpha": 0.5,
+    "optimizer": ["adam", "adamw"],
+    "lr_schedule": ["none", "cosine_warm"],
+    "grad_clip": [0.0, 1.0],
+    "warmup_epochs": [3, 5, 10],
     "executor": {
-        "exec_name": "next_phase",
-        "output_dir": "outputs/next_phase",
-        "log_dir": "outputs/next_phase/logs"
+        "exec_name": "ablation",
+        "output_dir": "outputs/ablations",
+        "log_dir": "outputs/ablations/logs"
     },
     "slurm": {
         "cores": 4,
@@ -28,7 +35,7 @@
         "email": "Khashayar1924@gmail.com",
         "email_type": "END,FAIL",
         "log_dir": "outputs/slurm_logs",
-        "job_name": "np_features",
+        "job_name": "abl_recipe",
         "exclude": "gpunode13",
         "constraint": "",
         "gres": "gpu:1",
