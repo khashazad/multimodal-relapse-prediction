@@ -32,6 +32,7 @@ from .transformer_v1 import FusionTransformer, ModalityEncoder
 # Gradient reversal
 # ---------------------------------------------------------------------------
 
+
 class GradientReversalLayer(torch.autograd.Function):
     """Reverses gradients during backward pass, scaled by lambda_."""
 
@@ -66,6 +67,7 @@ class GradientReversal(nn.Module):
 # ---------------------------------------------------------------------------
 # Patient discriminator
 # ---------------------------------------------------------------------------
+
 
 class PatientDiscriminator(nn.Module):
     """Small MLP that predicts patient identity from the fused representation.
@@ -106,6 +108,7 @@ class PatientDiscriminator(nn.Module):
 # ---------------------------------------------------------------------------
 # DANN relapse transformer
 # ---------------------------------------------------------------------------
+
 
 class DANNRelapseTransformer(BaseRelapseModel):
     """Domain-Adversarial Multimodal Transformer for binary relapse prediction.
@@ -152,17 +155,19 @@ class DANNRelapseTransformer(BaseRelapseModel):
         self.dann_lambda = dann_lambda
 
         # Per-modality encoders (independent weights, same as v1)
-        self.encoders = nn.ModuleDict({
-            mod: ModalityEncoder(
-                input_dim=MODALITY_DIMS[mod],
-                d_model=d_model,
-                nhead=nhead,
-                num_layers=num_encoder_layers,
-                dropout=dropout,
-                max_seq_len=window_size + 1,  # +1 for CLS token
-            )
-            for mod in MODALITY_ORDER
-        })
+        self.encoders = nn.ModuleDict(
+            {
+                mod: ModalityEncoder(
+                    input_dim=MODALITY_DIMS[mod],
+                    d_model=d_model,
+                    nhead=nhead,
+                    num_layers=num_encoder_layers,
+                    dropout=dropout,
+                    max_seq_len=window_size + 1,  # +1 for CLS token
+                )
+                for mod in MODALITY_ORDER
+            }
+        )
 
         # Fusion transformer (same as v1)
         self.fusion = FusionTransformer(
@@ -189,37 +194,6 @@ class DANNRelapseTransformer(BaseRelapseModel):
         self._dann_logits: Optional[torch.Tensor] = None
         self._dann_targets: Optional[torch.Tensor] = None
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _encode_and_fuse(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-        """Encode all modalities and return the fused representation (B, d_model)."""
-        padding_mask = batch["padding_mask"]  # (B, W)
-
-        modality_tokens = []
-        modality_available = []
-
-        for mod in MODALITY_ORDER:
-            features = batch[f"{mod}_features"]  # (B, W, F_mod)
-            mod_mask = batch[f"{mod}_mask"]       # (B, W)
-
-            cls_out = self.encoders[mod](features, padding_mask, mod_mask)
-            modality_tokens.append(cls_out)
-
-            avail = mod_mask.any(dim=1)  # (B,)
-            modality_available.append(avail)
-
-        tokens = torch.stack(modality_tokens, dim=1)     # (B, M, d_model)
-        avail_mask = torch.stack(modality_available, dim=1)  # (B, M)
-
-        fused = self.fusion(tokens, avail_mask)  # (B, d_model)
-        return fused
-
-    # ------------------------------------------------------------------
-    # BaseRelapseModel interface
-    # ------------------------------------------------------------------
-
     def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         """
         Parameters
@@ -239,7 +213,8 @@ class DANNRelapseTransformer(BaseRelapseModel):
         self._dann_targets = None
 
         # Encode and fuse
-        fused = self._encode_and_fuse(batch)  # (B, d_model)
+        tokens, avail_mask = self._encode_modalities(batch, MODALITY_ORDER)
+        fused = self.fusion(tokens, avail_mask)
 
         # Classification
         logits = self.classifier(fused).squeeze(-1)  # (B,)
@@ -267,12 +242,12 @@ class DANNRelapseTransformer(BaseRelapseModel):
             return torch.tensor(0.0)
 
         patient_idx = self._dann_targets  # (B,)
-        valid = patient_idx != -1          # (B,) bool mask
+        valid = patient_idx != -1  # (B,) bool mask
 
         if not valid.any():
             return torch.tensor(0.0, device=self._dann_logits.device)
 
-        logits = self._dann_logits[valid]   # (N_valid, 9)
-        targets = patient_idx[valid]        # (N_valid,)
+        logits = self._dann_logits[valid]  # (N_valid, 9)
+        targets = patient_idx[valid]  # (N_valid,)
 
         return nn.functional.cross_entropy(logits, targets)

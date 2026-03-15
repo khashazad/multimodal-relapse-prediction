@@ -13,12 +13,10 @@ step automatically at the start of every preprocessing run.
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
-import numpy as np
 import pandas as pd
 
 
@@ -28,10 +26,10 @@ import pandas as pd
 
 MODALITY_FILES: Dict[str, str] = {
     "linacc": "linacc.parquet",
-    "gyr":    "gyr.parquet",
-    "hrm":    "hrm.parquet",
-    "step":   "step.parquet",
-    "sleep":  "sleep.parquet",
+    "gyr": "gyr.parquet",
+    "hrm": "hrm.parquet",
+    "step": "step.parquet",
+    "sleep": "sleep.parquet",
 }
 
 
@@ -39,19 +37,20 @@ MODALITY_FILES: Dict[str, str] = {
 # Data container
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class SequenceData:
     """All data for a single patient sequence."""
 
-    patient_id:    str
+    patient_id: str
     sequence_name: str
-    split:         str  # 'train', 'val', or 'test'
+    split: str  # 'train', 'val', or 'test'
 
-    linacc:   Optional[pd.DataFrame] = None
-    gyr:      Optional[pd.DataFrame] = None
-    hrm:      Optional[pd.DataFrame] = None
-    step:     Optional[pd.DataFrame] = None
-    sleep:    Optional[pd.DataFrame] = None
+    linacc: Optional[pd.DataFrame] = None
+    gyr: Optional[pd.DataFrame] = None
+    hrm: Optional[pd.DataFrame] = None
+    step: Optional[pd.DataFrame] = None
+    sleep: Optional[pd.DataFrame] = None
     relapses: Optional[pd.DataFrame] = None
 
 
@@ -59,12 +58,13 @@ class SequenceData:
 # Loader
 # ---------------------------------------------------------------------------
 
+
 class MultimodalDataLoader:
     """Load multimodal wearable sensor data for relapse prediction."""
 
     def __init__(self, data_root: str, track: int = 1) -> None:
-        self.data_root  = Path(data_root)
-        self.track      = track
+        self.data_root = Path(data_root)
+        self.track = track
         self.track_path = self.data_root / f"track{track}"
 
         if not self.track_path.exists():
@@ -77,7 +77,8 @@ class MultimodalDataLoader:
     def get_patients(self) -> List[str]:
         """Return sorted list of patient IDs (directories starting with 'P')."""
         return sorted(
-            p.name for p in self.track_path.iterdir()
+            p.name
+            for p in self.track_path.iterdir()
             if p.is_dir() and p.name.startswith("P")
         )
 

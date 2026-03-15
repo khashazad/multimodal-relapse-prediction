@@ -5,6 +5,7 @@ from pathlib import Path
 ZIP_PATH = Path("data/original/track1/track_1_annotations.zip")
 DATASET_PATH = Path("data/original/track1")
 
+
 def main():
     pattern = re.compile(r"^(P\d+)/(test_\d+)/relapses\.csv$")
     updated = []
@@ -26,6 +27,7 @@ def main():
     print(f"Updated {len(updated)} test relapses.csv files:")
     for p in sorted(updated):
         print(f"  {p}")
+
 
 if __name__ == "__main__":
     main()
