@@ -2,6 +2,20 @@
 
 ## In Progress
 
+### 2026-03-15: 015b Transformer-Only Ensemble — COMPLETED
+Heterogeneous ensemble (TCN+XGBoost) dragged performance down. Re-aggregated transformer-only.
+
+**Results** (`015_ensemble_results.md`):
+- **Rank avg: 6 transformers → 0.912 AUROC** (+0.055 vs single best, Wilcoxon p=0.010)
+- **Rank avg: Trans+FiLM (8 models) → 0.938 AUROC** (+0.081, Wilcoxon p=0.002)
+- Rank avg: Top-4 (d≥512) → 0.902 (p=0.010)
+- Rank avg: Top-2 (d=1024) → 0.868 (p=0.371, n.s.)
+- P8=1.000, P7=0.952, P4=0.990 (Trans+FiLM)
+- Simple avg and stacking still underperform (~0.82)
+
+### 2026-03-15: 015 Ensemble Experiments — COMPLETED
+Best single model AUROC=0.8454 plateaued. Oracle gap 0.062. Three ensemble strategies tested.
+
 ### 2026-03-13: Next Phase Experiments
 Baseline: d=1024 all-9 AUROC=0.793. Uses exported data from `data/processed/patient_data_export_all9.pkl`.
 
@@ -327,6 +341,14 @@ Baseline: d=1024 all-9 AUROC=0.793. Uses exported data from `data/processed/pati
   - dropout=0.3 won at d=1024, so sweep {0.2,0.3,0.4}. n_layers=4 retested at higher capacity.
   - Part 2: full ranked table + d_model scaling summary + n_layers=3 vs 4 at d=2048. Overall best explicit.
   - Cache: combo_d2048_l{3,4}_dr0{2,3,4}.pkl in cache/transformer_bp_pad_hpgrid/
+
+### 2026-03-15
+- [x] Ablation v2: Union vs All feature sets (810 SLURM jobs, 14 configs):
+  - Best overall: all + focal(g=1.0,a=0.7) + ls=0.2 → AUROC=0.8454
+  - Best union: focal(g=1.0,a=0.5) + ls=0.2 → AUROC=0.8410
+  - Feature set gap small (~0.004 at best config). Union captures most signal with 24 vs 69 features.
+  - RoPE hurts both (worst technique). Focal+smooth dominates both tracks.
+  - Results documented in `014_ablation_v2_results.md`
 
 ## Pending Tasks
 - [ ] Ablation depth sweep: `bash scripts/submit_slurm.sh -n ablation_depth` (54 jobs, 9 folds × 6 n_layers)
