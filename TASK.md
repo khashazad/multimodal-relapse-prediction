@@ -2,6 +2,33 @@
 
 ## In Progress
 
+### 2026-03-16: 016 CNN+LSTM Per-Modality Architecture — IMPLEMENTATION COMPLETE
+Adapting cardiac arrest CNN+LSTM paper. Per-signal 1D CNN on 5-min binned signals + LSTM across days.
+
+**Files created/modified:**
+- `src/bin_extractor.py` — 5-min bin extraction for IMU/HR (288 bins/day, 8ch IMU, 4ch HR)
+- `src/preprocess_cnn_loso.py` — LOSO preprocessing pipeline for binned data (optimized: only extracts step/sleep features, skips expensive IMU/HR feature computation)
+- `scripts/preprocess_cnn_data.py` — entry point (supports --patient/--merge SLURM modes)
+- `scripts/submit_preprocess_cnn.sh` — SLURM two-phase preprocessing submission
+- `configs/preprocessing_cnn.json` — preprocessing config (24G RAM, 6h time limit)
+- `src/dataset_cnn.py` — PyTorch dataset for CNN+FC hybrid windows
+- `src/models/cnn_lstm.py` — SignalCNN, ModalityCNNLSTM, EpisodicBranch, CNNLSTMEnsemble
+- `src/models/__init__.py` — registered `cnn_lstm` in MODEL_REGISTRY
+- `src/train_cnn.py` — training script (joint + independent modality modes, saves checkpoints)
+- `src/ensemble_cnn.py` — post-hoc F1-weighted + rank-avg + mean ensemble
+- `configs/cnn_lstm_joint.json` — end-to-end joint training (9 folds)
+- `configs/cnn_lstm_independent.json` — per-modality independent (9×5=45 jobs)
+- `configs/cnn_lstm_sweep.json` — hyperparameter sweep (9×3×2×2×2=216 jobs)
+
+**Verified:** imports, model forward pass all fusion modes (22K params ensemble, 6K single branch), backward pass + gradients, BinExtractor on real P1 data (82/94 valid days, 214/288 bins), dataset loading + collation, CLI option mapping to executor configs.
+
+**Next steps:**
+- [ ] Run preprocessing: `bash scripts/submit_preprocess_cnn.sh` (or local: `python scripts/preprocess_cnn_data.py`)
+- [ ] Joint baseline: `bash scripts/submit_slurm.sh -n cnn_lstm_joint`
+- [ ] Independent per-modality: `bash scripts/submit_slurm.sh -n cnn_lstm_independent`
+- [ ] Post-hoc ensemble: `python -m src.ensemble_cnn`
+- [ ] Compare against transformer baselines (single 0.857, rank-avg 0.912, Trans+FiLM 0.938)
+
 ### 2026-03-15: 015b Transformer-Only Ensemble — COMPLETED
 Heterogeneous ensemble (TCN+XGBoost) dragged performance down. Re-aggregated transformer-only.
 
