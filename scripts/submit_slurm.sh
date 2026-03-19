@@ -141,6 +141,7 @@ SBATCH_CMD+=" --error=$SLURM_LOG_DIR/%A_%a.err"
 [ -n "$SLURM_GRES" ] && SBATCH_CMD+=" --gres=$SLURM_GRES"
 [ -n "$SLURM_CONSTRAINT" ] && SBATCH_CMD+=" --constraint=$SLURM_CONSTRAINT"
 [ -n "$SLURM_EXCLUDE" ] && SBATCH_CMD+=" --exclude=$SLURM_EXCLUDE"
+[ -n "$SLURM_DEPENDENCY" ] && SBATCH_CMD+=" --dependency=$SLURM_DEPENDENCY"
 
 export EXPERIMENT_LANG
 export NAME

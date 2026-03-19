@@ -1,5 +1,15 @@
 {
-    "fold": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    "fold": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+    ],
     "model_name": "transformer_v4",
     "d_model": 32,
     "nhead": 2,
@@ -8,7 +18,7 @@
     "dropout": 0.3,
     "dann_lambda": 0.1,
     "dann_warmup_epochs": 10,
-    "lr": 1e-4,
+    "lr": 0.0001,
     "weight_decay": 0.01,
     "batch_size": 32,
     "epochs": 100,
@@ -31,7 +41,7 @@
         "nodes": 1,
         "time": "0-02:00",
         "memory": "16G",
-        "partition": "cpunodes",
+        "partition": "gpunodes",
         "account": "",
         "email": "Khashayar1924@gmail.com",
         "email_type": "END,FAIL",
@@ -39,7 +49,7 @@
         "job_name": "exp_dann_focal",
         "exclude": "",
         "constraint": "",
-        "gres": "",
+        "gres": "gpu:1",
         "julia_path": ""
     }
 }
