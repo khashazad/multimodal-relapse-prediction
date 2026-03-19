@@ -152,11 +152,7 @@ figures/*tif
 backups*
 
 # Ignore the data
-data/**/*json
-data/**/*csv
+data/*
 
 # Ignore vscode things
 **.DS_Store
-
-data/*
-env
