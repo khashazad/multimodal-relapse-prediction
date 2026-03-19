@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .base import BaseRelapseModel
+from .cnn_lstm import CNNLSTMEnsemble
 from .transformer_v1 import (
     FusionTransformer,
     ModalityEncoder,
@@ -19,6 +20,7 @@ MODEL_REGISTRY: dict[str, type[BaseRelapseModel]] = {
     "transformer_v2": BottleneckRelapseTransformer,
     "transformer_v3": GatedRelapseTransformer,
     "transformer_v4": DANNRelapseTransformer,
+    "cnn_lstm": CNNLSTMEnsemble,
 }
 
 

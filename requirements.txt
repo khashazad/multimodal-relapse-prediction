@@ -9,3 +9,4 @@ torch
 pyarrow
 scikit-learn
 imbalanced-learn
+xgboost

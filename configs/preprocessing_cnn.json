@@ -1,0 +1,32 @@
+{
+  "data_root": "data/original",
+  "track": 1,
+  "window_size": 7,
+  "stride": 1,
+  "output_dir": "data/processed_cnn",
+  "save_format": "pickle",
+  "sleep_files_dir": "data/original/track1/sleep_files",
+  "annotations_dir": "data/original/track1/track_1_annotations",
+  "bin_extraction": {
+    "bin_minutes": 5
+  },
+  "feature_extraction": {
+    "window_size_minutes": 5,
+    "sample_rate_imu": 20,
+    "sample_rate_hr": 5,
+    "coverage_threshold": 0.25
+  },
+  "slurm": {
+    "cores": 4,
+    "time": "0-06:00",
+    "memory": "48G",
+    "merge_time": "0-00:30",
+    "merge_memory": "16G",
+    "partition": "cpunodes",
+    "account": "",
+    "email": "Khashayar1924@gmail.com",
+    "email_type": "FAIL,END",
+    "log_dir": "outputs/slurm_logs",
+    "job_name": "preprocess_cnn"
+  }
+}

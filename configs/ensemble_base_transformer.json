@@ -1,0 +1,38 @@
+{
+    "_description": "Ensemble base: transformers. 9 folds x 3 d_models x 2 feature_sets = 54 jobs.",
+    "method": "base_model",
+    "model_type": "transformer",
+    "fold": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    "d_model": [256, 512, 1024],
+    "feature_set": ["union", "all"],
+    "n_layers": 3,
+    "dropout": 0.3,
+    "nhead": 4,
+    "loss_type": "focal",
+    "focal_gamma": 1.0,
+    "focal_alpha": 0.7,
+    "label_smoothing": 0.2,
+    "seq_len": 7,
+    "batch_size": 32,
+    "lr": 1e-3,
+    "n_epochs": 80,
+    "seed": 42,
+    "save_checkpoint": true,
+    "data_path": "data/processed/patient_data_export_all9.pkl",
+    "executor": {
+        "exec_name": "ensemble_phase",
+        "output_dir": "outputs/ensemble_phase",
+        "log_dir": "outputs/ensemble_phase/logs"
+    },
+    "slurm": {
+        "cores": 4,
+        "nodes": 1,
+        "time": "0-02:00",
+        "memory": "4G",
+        "partition": "gpunodes",
+        "gres": "gpu:1",
+        "job_name": "ens_tf",
+        "exclude": "gpunode13",
+        "log_dir": "outputs/slurm_logs"
+    }
+}

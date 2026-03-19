@@ -2,6 +2,47 @@
 
 ## In Progress
 
+### 2026-03-16: 016 CNN+LSTM Per-Modality Architecture — IMPLEMENTATION COMPLETE
+Adapting cardiac arrest CNN+LSTM paper. Per-signal 1D CNN on 5-min binned signals + LSTM across days.
+
+**Files created/modified:**
+- `src/bin_extractor.py` — 5-min bin extraction for IMU/HR (288 bins/day, 8ch IMU, 4ch HR)
+- `src/preprocess_cnn_loso.py` — LOSO preprocessing pipeline for binned data (optimized: only extracts step/sleep features, skips expensive IMU/HR feature computation)
+- `scripts/preprocess_cnn_data.py` — entry point (supports --patient/--merge SLURM modes)
+- `scripts/submit_preprocess_cnn.sh` — SLURM two-phase preprocessing submission
+- `configs/preprocessing_cnn.json` — preprocessing config (24G RAM, 6h time limit)
+- `src/dataset_cnn.py` — PyTorch dataset for CNN+FC hybrid windows
+- `src/models/cnn_lstm.py` — SignalCNN, ModalityCNNLSTM, EpisodicBranch, CNNLSTMEnsemble
+- `src/models/__init__.py` — registered `cnn_lstm` in MODEL_REGISTRY
+- `src/train_cnn.py` — training script (joint + independent modality modes, saves checkpoints)
+- `src/ensemble_cnn.py` — post-hoc F1-weighted + rank-avg + mean ensemble
+- `configs/cnn_lstm_joint.json` — end-to-end joint training (9 folds)
+- `configs/cnn_lstm_independent.json` — per-modality independent (9×5=45 jobs)
+- `configs/cnn_lstm_sweep.json` — hyperparameter sweep (9×3×2×2×2=216 jobs)
+
+**Verified:** imports, model forward pass all fusion modes (22K params ensemble, 6K single branch), backward pass + gradients, BinExtractor on real P1 data (82/94 valid days, 214/288 bins), dataset loading + collation, CLI option mapping to executor configs.
+
+**Next steps:**
+- [ ] Run preprocessing: `bash scripts/submit_preprocess_cnn.sh` (or local: `python scripts/preprocess_cnn_data.py`)
+- [ ] Joint baseline: `bash scripts/submit_slurm.sh -n cnn_lstm_joint`
+- [ ] Independent per-modality: `bash scripts/submit_slurm.sh -n cnn_lstm_independent`
+- [ ] Post-hoc ensemble: `python -m src.ensemble_cnn`
+- [ ] Compare against transformer baselines (single 0.857, rank-avg 0.912, Trans+FiLM 0.938)
+
+### 2026-03-15: 015b Transformer-Only Ensemble — COMPLETED
+Heterogeneous ensemble (TCN+XGBoost) dragged performance down. Re-aggregated transformer-only.
+
+**Results** (`015_ensemble_results.md`):
+- **Rank avg: 6 transformers → 0.912 AUROC** (+0.055 vs single best, Wilcoxon p=0.010)
+- **Rank avg: Trans+FiLM (8 models) → 0.938 AUROC** (+0.081, Wilcoxon p=0.002)
+- Rank avg: Top-4 (d≥512) → 0.902 (p=0.010)
+- Rank avg: Top-2 (d=1024) → 0.868 (p=0.371, n.s.)
+- P8=1.000, P7=0.952, P4=0.990 (Trans+FiLM)
+- Simple avg and stacking still underperform (~0.82)
+
+### 2026-03-15: 015 Ensemble Experiments — COMPLETED
+Best single model AUROC=0.8454 plateaued. Oracle gap 0.062. Three ensemble strategies tested.
+
 ### 2026-03-13: Next Phase Experiments
 Baseline: d=1024 all-9 AUROC=0.793. Uses exported data from `data/processed/patient_data_export_all9.pkl`.
 
@@ -327,6 +368,14 @@ Baseline: d=1024 all-9 AUROC=0.793. Uses exported data from `data/processed/pati
   - dropout=0.3 won at d=1024, so sweep {0.2,0.3,0.4}. n_layers=4 retested at higher capacity.
   - Part 2: full ranked table + d_model scaling summary + n_layers=3 vs 4 at d=2048. Overall best explicit.
   - Cache: combo_d2048_l{3,4}_dr0{2,3,4}.pkl in cache/transformer_bp_pad_hpgrid/
+
+### 2026-03-15
+- [x] Ablation v2: Union vs All feature sets (810 SLURM jobs, 14 configs):
+  - Best overall: all + focal(g=1.0,a=0.7) + ls=0.2 → AUROC=0.8454
+  - Best union: focal(g=1.0,a=0.5) + ls=0.2 → AUROC=0.8410
+  - Feature set gap small (~0.004 at best config). Union captures most signal with 24 vs 69 features.
+  - RoPE hurts both (worst technique). Focal+smooth dominates both tracks.
+  - Results documented in `014_ablation_v2_results.md`
 
 ## Pending Tasks
 - [ ] Ablation depth sweep: `bash scripts/submit_slurm.sh -n ablation_depth` (54 jobs, 9 folds × 6 n_layers)
