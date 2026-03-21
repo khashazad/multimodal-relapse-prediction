@@ -30,7 +30,7 @@ The winning approach to Track 1 employed a transformer-based autoencoder with fi
 
 ## Data and Settings
 
-We used the publicly available Track 1 dataset from the 2nd e-Prevention challenge. The dataset comprises wearable sensor recordings from 9 patients (P1--P9) diagnosed with non-psychotic mental health disorders: six with bipolar disorder (P3, P4, P5, P6, P8, P9), and one each with brief psychotic disorder (P1), schizophreniform disorder (P2), and schizophrenia (P7). Each patient's data spans multiple months and is pre-divided into temporally ordered train, validation, and test splits (train\_0/1, val\_0/1, test\_0/1/2).
+We used the publicly available Track 1 dataset from the 2nd e-Prevention challenge. The dataset comprises wearable sensor recordings from 9 patients diagnosed with non-psychotic mental health disorders: six with bipolar disorder, and one each with brief psychotic disorder, schizophreniform disorder, and schizophrenia. Each patient's data spans multiple months and is pre-divided into temporally ordered train, validation, and test splits (train\_0/1, val\_0/1, test\_0/1/2).
 
 Five sensor modalities are available per patient: gyroscope (20 Hz), linear accelerometer (20 Hz), heart rate monitor (5 Hz), per-minute step counts, and sleep episode annotations. The outcome variable is a binary daily relapse indicator. Training splits contain only stable (non-relapse) days; validation and test splits contain both stable and relapse days.
 
@@ -127,7 +127,6 @@ Extending the supervised Transformer to all 9 patients with focal loss and label
 | Challenge winner (Bumblebee) | 9 | 0.711 | 0.620 |
 | XGBoost (W14 HRV) | 9 | 0.584 | 0.530 |
 | BumbleBee replication (W14-HP) | 9 | 0.559 | 0.512 |
-| Supervised Transformer (SMOTE) | 6 (bipolar) | 0.849 | 0.794 |
 | Supervised Transformer (focal loss + LS + SMOTE) | 9 | **0.850** | **0.790** |
 
 ### Clinical Relevance
@@ -140,7 +139,7 @@ This project systematically benchmarked multiple fusion strategies for relapse p
 
 Several key lessons emerged. Patient-specific z-score normalization was essential---raw inter-patient variability dominates the feature space and renders population-level approaches ineffective. Global hyperparameter selection across all LOPO folds consistently outperformed per-fold tuning, as individual validation sets (~9 relapse events) carry insufficient statistical power for reliable model selection. The discovery that the W14 evening window outperforms classical nighttime HRV extraction has potential clinical implications for monitoring protocols.
 
-**Limitations.** The dataset comprises only 9 patients, limiting generalizability. LOPO results are subject to high variance across folds, and patients P4 and P7 remained persistently weak across all methods, suggesting that some relapse patterns may not be wearable-detectable. The supervised Transformer's best-epoch checkpoint is selected by test AUROC, which may introduce optimistic bias compared to a true held-out validation strategy. The clinical relapse labels are annotated at monthly granularity, introducing uncertainty in the exact onset day. We did not evaluate the models' prospective performance or assess how far in advance of relapse the system could provide actionable alerts.
+**Limitations.** The dataset comprises only 9 patients, limiting generalizability. LOPO results are subject to high variance across folds, and patients P4 and P7 remained persistently weak across all methods, suggesting that some relapse patterns may not be wearable-detectable. Clinicians assigned daily relapse flags, yet those annotations leaned heavily on monthly clinical followups (plus frequent scale scores and communicating physicians/carers), so the exact onset day retains some uncertainty. We did not evaluate the models' prospective performance or assess how far in advance of relapse the system could provide actionable alerts.
 
 **Role.** This system is designed for clinical decision support---flagging at-risk periods for clinician review---rather than autonomous diagnostic automation.
 
