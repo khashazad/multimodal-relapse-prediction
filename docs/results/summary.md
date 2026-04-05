@@ -53,6 +53,7 @@ Auto-generated from experiment output JSONs.
 | [ablv2_all_baseline](ablv2_all_baseline.md) | 0.813 | 0.728 | 0.318 |  | Ablation v2 — All baseline. 9 jobs. |
 | [ablv2_all_focal](ablv2_all_focal.md) | 0.802 | 0.713 | 0.462 | focal_gamma=2.0, focal_alpha=0.5 | Ablation v2 — All focal loss. 9 folds x 3 gamma x 3 alpha =  |
 | [ablv2_all_focal_smooth](ablv2_all_focal_smooth.md) | 0.841 | 0.725 | 0.332 | focal_gamma=1.0, focal_alpha=0.5, label_smoothing=0.2 | Ablation v2 — All focal + label smoothing. 9 folds x 2 gamma |
+| [ablv2_all_focal_smooth_v2](ablv2_all_focal_smooth_v2.md) | 0.904 | 0.825 | 0.248 | focal_gamma=0.5, focal_alpha=0.7, label_smoothing=0.25 | Ablation v2 — All focal + label smoothing (stabilized: grad_ |
 | [ablv2_all_label_smooth](ablv2_all_label_smooth.md) | 0.810 | 0.686 | 0.251 | label_smoothing=0.05 | Ablation v2 — All label smoothing. 9 folds x 4 eps = 36 jobs |
 | [ablv2_all_rope](ablv2_all_rope.md) | 0.771 | 0.673 | 0.321 |  | Ablation v2 — All RoPE. 9 folds x 1 = 9 jobs. |
 | [ablv2_all_stoch_depth](ablv2_all_stoch_depth.md) | 0.824 | 0.735 | 0.363 | stochastic_depth=0.2 | Ablation v2 — All stochastic depth. 9 folds x 3 drop_rate =  |
@@ -60,6 +61,7 @@ Auto-generated from experiment output JSONs.
 | [ablv2_union_baseline](ablv2_union_baseline.md) | 0.794 | 0.682 | 0.236 |  | Ablation v2 — Union baseline. 9 jobs. |
 | [ablv2_union_focal](ablv2_union_focal.md) | 0.824 | 0.730 | 0.522 | focal_gamma=2.0, focal_alpha=0.75 | Ablation v2 — Union focal loss. 9 folds x 3 gamma x 3 alpha  |
 | [ablv2_union_focal_smooth](ablv2_union_focal_smooth.md) | 0.827 | 0.686 | 0.000 | focal_gamma=1.0, focal_alpha=0.3, label_smoothing=0.25 | Ablation v2 — Union focal + label smoothing. 9 folds x 2 gam |
+| [ablv2_union_focal_smooth_v2](ablv2_union_focal_smooth_v2.md) | 0.840 | 0.742 | 0.318 | focal_gamma=0.5, focal_alpha=0.5, label_smoothing=0.1 | Ablation v2 — Union focal + label smoothing (stabilized: gra |
 | [ablv2_union_label_smooth](ablv2_union_label_smooth.md) | 0.802 | 0.714 | 0.282 | label_smoothing=0.05 | Ablation v2 — Union label smoothing. 9 folds x 4 eps = 36 jo |
 | [ablv2_union_rope](ablv2_union_rope.md) | 0.767 | 0.682 | 0.231 |  | Ablation v2 — Union RoPE. 9 folds x 1 = 9 jobs. |
 | [ablv2_union_stoch_depth](ablv2_union_stoch_depth.md) | 0.797 | 0.674 | 0.356 | stochastic_depth=0.1 | Ablation v2 — Union stochastic depth. 9 folds x 3 drop_rate  |

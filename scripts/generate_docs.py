@@ -376,8 +376,33 @@ def generate_doc(exp_name):
     return "\n".join(md)
 
 
+def parse_existing_summary():
+    """Parse existing summary.md to preserve rows for experiments without current results."""
+    summary_path = RESULTS_DIR / "summary.md"
+    if not summary_path.exists():
+        return {}
+    rows = {}
+    for line in summary_path.read_text().splitlines():
+        if not line.startswith("|"):
+            continue
+        # Match rows like "| [exp_name](exp_name.md) | ..." or "| exp_name | ..."
+        stripped = line.strip("| ").split("|")[0].strip()
+        if stripped.startswith("["):
+            name = stripped.split("]")[0].lstrip("[")
+        elif stripped and stripped not in ("Experiment", "---", "**Mean**"):
+            name = stripped
+        else:
+            continue
+        if name in ("Experiment",):
+            continue
+        rows[name] = line
+    return rows
+
+
 def generate_summary(experiments):
-    """Leaderboard grouped by phase."""
+    """Leaderboard grouped by phase. Preserves existing rows when results are unavailable."""
+    existing_rows = parse_existing_summary()
+
     md = ["# Results Summary\n"]
     md.append("Auto-generated from experiment output JSONs.\n")
 
@@ -398,7 +423,10 @@ def generate_summary(experiments):
             results = load_results(exp_name, output_dir)
 
             if not results:
-                md.append(f"| {exp_name} | — | — | — | — | no results |")
+                if exp_name in existing_rows:
+                    md.append(existing_rows[exp_name])
+                else:
+                    md.append(f"| {exp_name} | — | — | — | — | no results |")
                 continue
 
             sweep_params = identify_sweep_params(config)
