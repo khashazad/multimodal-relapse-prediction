@@ -519,6 +519,12 @@ def train_fold(
     else:
         crit = nn.BCEWithLogitsLoss()
 
+    # Auto-enable grad clipping when focal + label smoothing are combined
+    # to prevent gradient explosion from their interaction
+    if loss_type == "focal" and label_smoothing > 0 and grad_clip == 0:
+        grad_clip = 1.0
+        print(f"  Auto-enabled grad_clip=1.0 for focal+smooth stability")
+
     if optimizer == "adamw":
         opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     else:
@@ -533,7 +539,7 @@ def train_fold(
         scheduler = torch.optim.lr_scheduler.SequentialLR(
             opt, [warmup_sched, cosine_sched], milestones=[warmup_epochs])
 
-    best_auroc, best_state, best_epoch = -1.0, None, -1
+    best_auroc, best_state, best_opt_state, best_epoch = -1.0, None, None, -1
     history = []
 
     for epoch in range(n_epochs):
@@ -557,6 +563,21 @@ def train_fold(
             ep_loss += loss.item() * len(Xb)
         ep_loss /= max(n_train_windows, 1)
 
+        # Non-finite loss recovery: restore best checkpoint + optimizer and halve lr
+        if not math.isfinite(ep_loss):
+            if best_state is not None:
+                model.load_state_dict(best_state)
+                model.to(device)
+                opt.load_state_dict(best_opt_state)
+                for pg in opt.param_groups:
+                    pg["lr"] *= 0.5
+                new_lr = opt.param_groups[0]["lr"]
+                print(f"  Non-finite loss at epoch {epoch+1}, recovered from epoch {best_epoch}, lr→{new_lr:.1e}")
+                continue
+            else:
+                print(f"  Non-finite loss at epoch {epoch+1}, no checkpoint to recover from")
+                break
+
         if scheduler is not None:
             scheduler.step()
 
@@ -565,14 +586,24 @@ def train_fold(
             probs = torch.sigmoid(
                 model(X_te_t.to(device), src_key_padding_mask=m_te_t.to(device))
             ).cpu().numpy()
-        try:
-            ep_auroc = roc_auc_score(y_te, probs)
-        except Exception:
-            ep_auroc = 0.5
 
-        if ep_auroc > best_auroc:
+        # Guard: don't checkpoint if params or predictions are non-finite
+        params_ok = all(torch.isfinite(p).all() for p in model.parameters())
+        probs_ok = bool(np.isfinite(probs).all())
+        if not params_ok or not probs_ok:
+            reason = "params" if not params_ok else "predictions"
+            print(f"  Non-finite {reason} at epoch {epoch+1}, skipping checkpoint")
+            ep_auroc = float("nan")
+        else:
+            try:
+                ep_auroc = roc_auc_score(y_te, probs)
+            except Exception:
+                ep_auroc = 0.5
+
+        if math.isfinite(ep_auroc) and ep_auroc > best_auroc:
             best_auroc = ep_auroc
             best_state = copy.deepcopy(model.state_dict())
+            best_opt_state = copy.deepcopy(opt.state_dict())
             best_epoch = epoch + 1
 
         history.append({
@@ -582,8 +613,9 @@ def train_fold(
         })
 
         if (epoch + 1) % 20 == 0:
+            auroc_str = f"{ep_auroc:.4f}" if not math.isnan(ep_auroc) else "NaN"
             print(f"  Epoch {epoch+1:3d}/{n_epochs}  loss={ep_loss:.4f}  "
-                  f"AUROC={ep_auroc:.4f}  best={best_auroc:.4f}")
+                  f"AUROC={auroc_str}  best={best_auroc:.4f}")
 
     # Guard against NaN divergence (no valid checkpoint saved)
     if best_state is None:
@@ -593,7 +625,7 @@ def train_fold(
             "best_epoch": -1,
             "n_test_windows": n_test_windows, "n_test_relapse": n_test_relapse,
             "n_train_windows": n_train_windows, "n_train_relapse": n_train_relapse,
-            "model_params": n_params,
+            "model_params": n_params, "effective_grad_clip": grad_clip,
             "y_true": y_te.tolist(), "y_score": [],
             "history": history, "error": "training diverged (NaN loss)",
         }
@@ -606,17 +638,17 @@ def train_fold(
             model(X_te_t.to(device), src_key_padding_mask=m_te_t.to(device))
         ).cpu().numpy()
 
-    # Handle NaN in predictions
-    if np.any(np.isnan(final_probs)):
+    # Handle non-finite predictions
+    if not np.isfinite(final_probs).all():
         return {
             "auroc": float("nan"), "auprc": float("nan"),
             "f1": 0.0, "precision": 0.0, "recall": 0.0, "accuracy": 0.0,
             "best_epoch": best_epoch,
             "n_test_windows": n_test_windows, "n_test_relapse": n_test_relapse,
             "n_train_windows": n_train_windows, "n_train_relapse": n_train_relapse,
-            "model_params": n_params,
+            "model_params": n_params, "effective_grad_clip": grad_clip,
             "y_true": y_te.tolist(), "y_score": [],
-            "history": history, "error": "NaN in predictions",
+            "history": history, "error": "non-finite predictions",
         }
 
     auroc = float(roc_auc_score(y_te, final_probs))
@@ -636,6 +668,7 @@ def train_fold(
         "n_train_windows": n_train_windows,
         "n_train_relapse": n_train_relapse,
         "model_params": n_params,
+        "effective_grad_clip": grad_clip,
         "y_true": y_te.tolist(),
         "y_score": final_probs.tolist(),
         "history": history,
@@ -809,7 +842,7 @@ def main(
             "optimizer": optimizer,
             "lr_schedule": lr_schedule,
             "warmup_epochs": warmup_epochs,
-            "grad_clip": grad_clip,
+            "grad_clip": result.get("effective_grad_clip", grad_clip),
         },
         "n_features": len(feature_cols),
         "feature_cols": feature_cols,

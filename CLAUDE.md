@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Note: This repository is archived after experimentation. Headline result: 0.845 AUROC (focal loss transformer, 9-fold LOSO).**
+**Note: This repository is archived after experimentation. Headline result: 0.842 AUROC (focal loss transformer + grad_clip, 9/9 fold LOSO). Stabilized focal+smooth rerun pending.**
 
 ## Project Overview
 
