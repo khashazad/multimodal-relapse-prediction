@@ -539,8 +539,13 @@ def train_fold(
         scheduler = torch.optim.lr_scheduler.SequentialLR(
             opt, [warmup_sched, cosine_sched], milestones=[warmup_epochs])
 
-    best_auroc, best_state, best_opt_state, best_epoch = -1.0, None, None, -1
+    best_auroc, best_epoch = -1.0, -1
     history = []
+
+    # Save initial state so epoch-1 divergence can recover instead of aborting
+    import copy
+    best_state = copy.deepcopy(model.state_dict())
+    best_opt_state = copy.deepcopy(opt.state_dict())
 
     for epoch in range(n_epochs):
         model.train()

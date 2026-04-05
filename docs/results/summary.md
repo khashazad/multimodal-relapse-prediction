@@ -53,7 +53,7 @@ Auto-generated from experiment output JSONs.
 | [ablv2_all_baseline](ablv2_all_baseline.md) | 0.813 | 0.728 | 0.318 |  | Ablation v2 — All baseline. 9 jobs. |
 | [ablv2_all_focal](ablv2_all_focal.md) | 0.802 | 0.713 | 0.462 | focal_gamma=2.0, focal_alpha=0.5 | Ablation v2 — All focal loss. 9 folds x 3 gamma x 3 alpha =  |
 | [ablv2_all_focal_smooth](ablv2_all_focal_smooth.md) | 0.841 | 0.725 | 0.332 | focal_gamma=1.0, focal_alpha=0.5, label_smoothing=0.2 | Ablation v2 — All focal + label smoothing. 9 folds x 2 gamma |
-| [ablv2_all_focal_smooth_v2](ablv2_all_focal_smooth_v2.md) | 0.904 | 0.825 | 0.248 | focal_gamma=0.5, focal_alpha=0.7, label_smoothing=0.25 | Ablation v2 — All focal + label smoothing (stabilized: grad_ |
+| [ablv2_all_focal_smooth_v2](ablv2_all_focal_smooth_v2.md) | 0.846 | 0.725 | 0.522 | focal_gamma=1.0, focal_alpha=0.7, label_smoothing=0.2 | Ablation v2 — All focal + label smoothing (stabilized: grad_ |
 | [ablv2_all_label_smooth](ablv2_all_label_smooth.md) | 0.810 | 0.686 | 0.251 | label_smoothing=0.05 | Ablation v2 — All label smoothing. 9 folds x 4 eps = 36 jobs |
 | [ablv2_all_rope](ablv2_all_rope.md) | 0.771 | 0.673 | 0.321 |  | Ablation v2 — All RoPE. 9 folds x 1 = 9 jobs. |
 | [ablv2_all_stoch_depth](ablv2_all_stoch_depth.md) | 0.824 | 0.735 | 0.363 | stochastic_depth=0.2 | Ablation v2 — All stochastic depth. 9 folds x 3 drop_rate =  |

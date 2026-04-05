@@ -49,6 +49,33 @@ def safe_std(vals):
     return np.std(valid) if valid else float("nan")
 
 
+def all_folds_valid(results, metric="auroc"):
+    """Check that every result in the group has a valid (non-NaN) metric."""
+    for r in results:
+        v = get_test_metric(r, metric)
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return False
+    return True
+
+
+def valid_fold_count(results, metric="auroc"):
+    """Count results with a valid (non-NaN) metric."""
+    return sum(
+        1 for r in results
+        if not (isinstance(v := get_test_metric(r, metric), float) and np.isnan(v))
+        and v is not None
+    )
+
+
+def rank_key(results, metric="auroc"):
+    """Rank sweep groups: all-valid first (by mean), then incomplete (by valid count desc)."""
+    valid = all_folds_valid(results, metric)
+    mean = safe_mean([get_test_metric(r, metric) for r in results])
+    n_valid = valid_fold_count(results, metric)
+    # Sort: (1=all valid first, mean desc) then (0=incomplete, count desc, mean desc)
+    return (1 if valid else 0, n_valid, mean if not np.isnan(mean) else -1)
+
+
 # ---------------------------------------------------------------------------
 # Config & result loading
 # ---------------------------------------------------------------------------
@@ -247,21 +274,22 @@ def generate_sweep_table(results, sweep_params, has_val=True):
     grouped = group_by_sweep(results, sweep_params)
 
     header_params = " | ".join(f"`{p}`" for p in sweep_params)
+    n_folds = len(set(r.get("fold", 0) for r in results))
     if has_val:
         lines = [
-            f"| {header_params} | Mean Val AUROC | Mean Test AUROC | Mean Test AUPRC | Mean Test F1 |",
-            "|" + "---|" * (len(sweep_params) + 4),
+            f"| {header_params} | Folds | Mean Val AUROC | Mean Test AUROC | Mean Test AUPRC | Mean Test F1 |",
+            "|" + "---|" * (len(sweep_params) + 5),
         ]
     else:
         lines = [
-            f"| {header_params} | Mean Test AUROC | Mean Test AUPRC | Mean Test F1 |",
-            "|" + "---|" * (len(sweep_params) + 3),
+            f"| {header_params} | Folds | Mean Test AUROC | Mean Test AUPRC | Mean Test F1 |",
+            "|" + "---|" * (len(sweep_params) + 4),
         ]
 
-    # Sort by mean test AUROC descending
+    # Sort: all-valid-folds first by mean AUROC desc, then incomplete groups
     sorted_keys = sorted(
         grouped.keys(),
-        key=lambda k: safe_mean([get_test_metric(r, "auroc") for r in grouped[k]]),
+        key=lambda k: rank_key(grouped[k]),
         reverse=True,
     )
 
@@ -270,13 +298,15 @@ def generate_sweep_table(results, sweep_params, has_val=True):
         ta = safe_mean([get_test_metric(r, "auroc") for r in group])
         tp = safe_mean([get_test_metric(r, "auprc") for r in group])
         tf = safe_mean([get_test_metric(r, "f1") for r in group])
+        n_valid = valid_fold_count(group)
+        folds_str = f"{n_valid}/{n_folds}" if n_valid < n_folds else f"{n_folds}"
 
         vals = " | ".join(str(v) for v in key)
         if has_val:
             va = safe_mean([get_val_metric(r, "auroc") for r in group])
-            lines.append(f"| {vals} | {fmt(va)} | {fmt(ta)} | {fmt(tp)} | {fmt(tf)} |")
+            lines.append(f"| {vals} | {folds_str} | {fmt(va)} | {fmt(ta)} | {fmt(tp)} | {fmt(tf)} |")
         else:
-            lines.append(f"| {vals} | {fmt(ta)} | {fmt(tp)} | {fmt(tf)} |")
+            lines.append(f"| {vals} | {folds_str} | {fmt(ta)} | {fmt(tp)} | {fmt(tf)} |")
 
     return "\n".join(lines)
 
@@ -340,11 +370,11 @@ def generate_doc(exp_name):
         md.append(generate_sweep_table(results, sweep_params, has_val))
         md.append("")
 
-        # Per-fold for best combo
+        # Per-fold for best combo (prefer configs with all folds valid)
         grouped = group_by_sweep(results, sweep_params)
         best_key = max(
             grouped.keys(),
-            key=lambda k: safe_mean([get_test_metric(r, "auroc") for r in grouped[k]]),
+            key=lambda k: rank_key(grouped[k]),
         )
         best_results = grouped[best_key]
         combo_str = ", ".join(f"{p}={v}" for p, v in zip(sweep_params, best_key))
@@ -438,7 +468,7 @@ def generate_summary(experiments):
                 grouped = group_by_sweep(results, sweep_params)
                 best_key = max(
                     grouped.keys(),
-                    key=lambda k: safe_mean([get_test_metric(r, "auroc") for r in grouped[k]]),
+                    key=lambda k: rank_key(grouped[k]),
                 )
                 results = grouped[best_key]
                 sweep_str = ", ".join(f"{p}={v}" for p, v in zip(sweep_params, best_key))
