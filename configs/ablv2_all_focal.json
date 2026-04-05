@@ -28,7 +28,7 @@
         "memory": "4G",
         "partition": "gpunodes",
         "account": "",
-        "email": "Khashayar1924@gmail.com",
+        "email": "",
         "email_type": "END,FAIL",
         "log_dir": "outputs/slurm_logs",
         "job_name": "a_focal",

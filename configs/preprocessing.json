@@ -33,7 +33,7 @@
     "merge_memory": "8G",
     "partition": "gpunodes",
     "account": "",
-    "email": "Khashayar1924@gmail.com",
+    "email": "",
     "email_type": "FAIL,END",
     "log_dir": "outputs/slurm_logs",
     "gres": "gpu:1",
