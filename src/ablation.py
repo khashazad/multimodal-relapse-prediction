@@ -542,6 +542,10 @@ def train_fold(
     best_auroc, best_state, best_opt_state, best_epoch = -1.0, None, None, -1
     history = []
 
+    # Save initial state so epoch-1 divergence can recover instead of aborting
+    initial_state = copy.deepcopy(model.state_dict())
+    initial_opt_state = copy.deepcopy(opt.state_dict())
+
     for epoch in range(n_epochs):
         model.train()
         ep_loss = 0.0
@@ -563,20 +567,20 @@ def train_fold(
             ep_loss += loss.item() * len(Xb)
         ep_loss /= max(n_train_windows, 1)
 
-        # Non-finite loss recovery: restore best checkpoint + optimizer and halve lr
+        # Non-finite loss recovery: restore checkpoint + halve lr
         if not math.isfinite(ep_loss):
-            if best_state is not None:
-                model.load_state_dict(best_state)
-                model.to(device)
-                opt.load_state_dict(best_opt_state)
-                for pg in opt.param_groups:
-                    pg["lr"] *= 0.5
-                new_lr = opt.param_groups[0]["lr"]
-                print(f"  Non-finite loss at epoch {epoch+1}, recovered from epoch {best_epoch}, lr→{new_lr:.1e}")
-                continue
-            else:
-                print(f"  Non-finite loss at epoch {epoch+1}, no checkpoint to recover from")
-                break
+            # Prefer best promoted checkpoint; fall back to initial state
+            recover_state = best_state if best_state is not None else initial_state
+            recover_opt = best_opt_state if best_opt_state is not None else initial_opt_state
+            source = f"epoch {best_epoch}" if best_state is not None else "initial weights"
+            model.load_state_dict(recover_state)
+            model.to(device)
+            opt.load_state_dict(recover_opt)
+            for pg in opt.param_groups:
+                pg["lr"] *= 0.5
+            new_lr = opt.param_groups[0]["lr"]
+            print(f"  Non-finite loss at epoch {epoch+1}, recovered from {source}, lr→{new_lr:.1e}")
+            continue
 
         if scheduler is not None:
             scheduler.step()

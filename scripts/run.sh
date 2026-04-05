@@ -72,7 +72,7 @@ if [ -z "$SLURM_ARRAY_TASK_ID" ]; then
     fi
 fi
 
-source env/bin/activate
+source /w/20252/khashazad/env/bin/activate
 
 # Set configuration variables
 if [ -n "$SLURM_ARRAY_TASK_ID" ]; then
