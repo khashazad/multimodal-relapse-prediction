@@ -519,6 +519,12 @@ def train_fold(
     else:
         crit = nn.BCEWithLogitsLoss()
 
+    # Auto-enable grad clipping when focal + label smoothing are combined
+    # to prevent gradient explosion from their interaction
+    if loss_type == "focal" and label_smoothing > 0 and grad_clip == 0:
+        grad_clip = 1.0
+        print(f"  Auto-enabled grad_clip=1.0 for focal+smooth stability")
+
     if optimizer == "adamw":
         opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     else:
@@ -557,6 +563,20 @@ def train_fold(
             ep_loss += loss.item() * len(Xb)
         ep_loss /= max(n_train_windows, 1)
 
+        # NaN loss recovery: restore best checkpoint and halve lr
+        if math.isnan(ep_loss):
+            if best_state is not None:
+                model.load_state_dict(best_state)
+                model.to(device)
+                for pg in opt.param_groups:
+                    pg["lr"] *= 0.5
+                new_lr = opt.param_groups[0]["lr"]
+                print(f"  NaN loss at epoch {epoch+1}, recovered from epoch {best_epoch}, lr→{new_lr:.1e}")
+                continue
+            else:
+                print(f"  NaN loss at epoch {epoch+1}, no checkpoint to recover from")
+                break
+
         if scheduler is not None:
             scheduler.step()
 
@@ -565,12 +585,19 @@ def train_fold(
             probs = torch.sigmoid(
                 model(X_te_t.to(device), src_key_padding_mask=m_te_t.to(device))
             ).cpu().numpy()
-        try:
-            ep_auroc = roc_auc_score(y_te, probs)
-        except Exception:
-            ep_auroc = 0.5
 
-        if ep_auroc > best_auroc:
+        # Guard: don't checkpoint if model weights are NaN
+        has_nan_params = any(torch.isnan(p).any() for p in model.parameters())
+        if has_nan_params:
+            print(f"  NaN in model params at epoch {epoch+1}, skipping checkpoint")
+            ep_auroc = float("nan")
+        else:
+            try:
+                ep_auroc = roc_auc_score(y_te, probs)
+            except Exception:
+                ep_auroc = 0.5
+
+        if not math.isnan(ep_auroc) and ep_auroc > best_auroc:
             best_auroc = ep_auroc
             best_state = copy.deepcopy(model.state_dict())
             best_epoch = epoch + 1
@@ -582,8 +609,9 @@ def train_fold(
         })
 
         if (epoch + 1) % 20 == 0:
+            auroc_str = f"{ep_auroc:.4f}" if not math.isnan(ep_auroc) else "NaN"
             print(f"  Epoch {epoch+1:3d}/{n_epochs}  loss={ep_loss:.4f}  "
-                  f"AUROC={ep_auroc:.4f}  best={best_auroc:.4f}")
+                  f"AUROC={auroc_str}  best={best_auroc:.4f}")
 
     # Guard against NaN divergence (no valid checkpoint saved)
     if best_state is None:
