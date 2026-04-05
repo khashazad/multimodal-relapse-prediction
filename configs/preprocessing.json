@@ -28,14 +28,16 @@
     },
     "cores": 4,
     "time": "0-04:00",
-    "memory": "12G",
+    "memory": "48G",
     "merge_time": "0-00:30",
     "merge_memory": "8G",
-    "partition": "cpunodes",
+    "partition": "gpunodes",
     "account": "",
     "email": "Khashayar1924@gmail.com",
     "email_type": "FAIL,END",
     "log_dir": "outputs/slurm_logs",
+    "gres": "gpu:1",
+    "exclude": "gpunode13",
     "job_name": "preprocess"
   }
 }

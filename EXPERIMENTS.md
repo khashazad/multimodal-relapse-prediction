@@ -11,14 +11,14 @@ Binary per-day relapse prediction from wearable sensor data (9 patients, LOSO cr
 | Notebook | MLP | 24 feat | ~0.550 | — | `notebooks/main.ipynb` |
 | Notebook | Transformer (bipolar-6) | 24 feat | 0.849 | 0.794 | `notebooks/main.ipynb` |
 | Notebook | Transformer (all-9) | 24 feat | 0.793 | 0.705 | `notebooks/main.ipynb` |
-| Framework | Focal loss (d=32, exploration) | 69 feat | 0.664 | 0.545 | `docs/experiment-log/exp_focal.md` |
-| Framework | Baseline BCE (d=1024) | 69 feat | 0.808 | 0.689 | `docs/experiment-log/011_*` |
-| Framework | **Focal loss (γ=1, α=0.5)** | **69 feat** | **0.845** | **0.762** | `docs/experiment-log/011_*` |
-| Framework | Focal+smooth (v1) | 69 feat | 0.838 | 0.775 | `docs/experiment-log/011_*` |
-| Framework | Label smoothing | 69 feat | 0.833 | 0.752 | `docs/experiment-log/011_*` |
-| Framework | Training recipe sweep | 69 feat | 0.842 | — | `docs/experiment-log/012_*` |
-| Framework | Focal+smooth (v2, all) | 69 feat | 0.845 | 0.745 | `docs/experiment-log/014_*` |
-| Framework | Focal+smooth (v2, union) | 24 feat | 0.841 | 0.737 | `docs/experiment-log/014_*` |
+| Framework | Focal loss (d=32, exploration) | 69 feat | 0.664 | 0.545 | `docs/results/exp_focal.md` |
+| Framework | Baseline BCE (d=1024) | 69 feat | 0.808 | 0.689 | `docs/results/ablation_baseline.md` |
+| Framework | **Focal loss (γ=1, α=0.5)** | **69 feat** | **0.845** | **0.762** | `docs/results/ablation_focal.md` |
+| Framework | Focal+smooth (v1) | 69 feat | 0.838 | 0.775 | `docs/results/ablation_focal_smooth.md` |
+| Framework | Label smoothing | 69 feat | 0.833 | 0.752 | `docs/results/ablation_label_smooth.md` |
+| Framework | Training recipe sweep | 69 feat | 0.842 | — | `docs/results/ablation_recipe.md` |
+| Framework | Focal+smooth (v2, all) | 69 feat | 0.845 | 0.745 | `docs/results/ablv2_all_focal_smooth.md` |
+| Framework | Focal+smooth (v2, union) | 24 feat | 0.841 | 0.737 | `docs/results/ablv2_union_focal_smooth.md` |
 
 **Headline result: single transformer with focal loss → 0.845 AUROC** (d=1024, 3 layers, 4 heads, LOSO across 9 patients).
 

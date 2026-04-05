@@ -47,7 +47,7 @@
         "job_name": "train",
         "exclude": "",
         "constraint": "",
-        "gres": "gpu:rtx_4090:1",
+        "gres": "gpu:1",
         "julia_path": ""
     }
 }

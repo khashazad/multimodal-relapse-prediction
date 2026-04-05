@@ -111,15 +111,15 @@ See [EXPERIMENTS.md](EXPERIMENTS.md) for full experiment catalog and reproductio
 
 ```
 ├── EXPERIMENTS.md              # Experiment catalog with results
-├── configs/                    # ~44 experiment configs (see configs/README.md)
+├── configs/                    # ~43 experiment configs (see configs/README.md)
 ├── docs/
 │   ├── TASK_ARCHIVE.md         # Development log
-│   └── experiment-log/         # 7 experiment narrative files
+│   └── results/                # Auto-generated per-experiment docs + summary
 ├── figures/                    # Exported plots
 ├── notebooks/
 │   ├── main.ipynb              # Feature engineering + modeling
 │   └── README.md               # LaTeX/TinyTeX setup
-├── scripts/                    # Run/submit/preprocess scripts
+├── scripts/                    # Run/submit/preprocess/verify scripts
 └── src/
     ├── models/                 # Transformer variants (v1–v4)
     ├── losses/                 # Focal loss

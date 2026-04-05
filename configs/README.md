@@ -1,6 +1,6 @@
 # Config Index
 
-44 experiment configs grouped by phase. Scripts reference `configs/${NAME}.json`.
+43 experiment configs grouped by phase. Scripts reference `configs/${NAME}.json`.
 
 ## Preprocessing
 
@@ -12,7 +12,6 @@
 
 | Config | Purpose |
 |--------|---------|
-| `experiment.json` | Template config with all parameter keys |
 | `train.json` | Single training run config |
 
 ## Exploration (V1)

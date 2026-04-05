@@ -100,15 +100,15 @@ For fold k (test patient = P_k):
 
 ```
 ├── EXPERIMENTS.md              # Full experiment catalog
-├── configs/                    # ~44 JSON configs + README
+├── configs/                    # ~43 JSON configs + README
 ├── docs/
 │   ├── TASK_ARCHIVE.md         # Development log (48KB)
-│   └── experiment-log/         # 7 experiment narrative files
+│   └── results/                # Auto-generated per-experiment docs + summary
 ├── figures/                    # Exported plots
 ├── notebooks/
 │   ├── main.ipynb              # Primary notebook (outputs stripped)
 │   └── README.md               # TinyTeX workaround
-├── scripts/                    # Run/submit/preprocess scripts
+├── scripts/                    # Run/submit/preprocess/verify scripts
 └── src/
     ├── models/                 # Transformer v1–v4
     ├── losses/                 # Focal loss

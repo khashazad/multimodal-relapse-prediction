@@ -57,6 +57,8 @@ SLURM_PARTITION=$(jq -r '.slurm.partition  // empty'           "$CONFIG_FILE")
 SLURM_ACCOUNT=$(jq -r   '.slurm.account    // empty'           "$CONFIG_FILE")
 SLURM_EMAIL=$(jq -r     '.slurm.email      // empty'           "$CONFIG_FILE")
 SLURM_EMAIL_TYPE=$(jq -r '.slurm.email_type // "FAIL"'         "$CONFIG_FILE")
+SLURM_GRES=$(jq -r      '.slurm.gres       // empty'           "$CONFIG_FILE")
+SLURM_EXCLUDE=$(jq -r   '.slurm.exclude    // empty'           "$CONFIG_FILE")
 
 # ---------------------------------------------------------------------------
 # Discover patients
@@ -96,6 +98,8 @@ COMMON_OPTS=""
 [ -n "$SLURM_ACCOUNT" ]    && COMMON_OPTS+=" --account=$SLURM_ACCOUNT"
 [ -n "$SLURM_EMAIL" ]      && COMMON_OPTS+=" --mail-user=$SLURM_EMAIL"
 [ -n "$SLURM_EMAIL_TYPE" ] && COMMON_OPTS+=" --mail-type=$SLURM_EMAIL_TYPE"
+[ -n "$SLURM_GRES" ]       && COMMON_OPTS+=" --gres=$SLURM_GRES"
+[ -n "$SLURM_EXCLUDE" ]    && COMMON_OPTS+=" --exclude=$SLURM_EXCLUDE"
 
 # ---------------------------------------------------------------------------
 # Phase 1: per-patient array job
